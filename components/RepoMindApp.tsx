@@ -454,7 +454,7 @@ export default function RepoMindApp() {
             </p>
 
             <p className="mb-1.5 mt-4 text-xs font-medium uppercase tracking-wide text-white/30">Explain like I'm...</p>
-            <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-black/20 p-1">
+            <div className="glass-chip flex items-center gap-1 rounded-xl p-1">
               {MODES.map(({ value, label, icon: Icon, gradient }) => (
                 <button
                   key={value}
@@ -559,13 +559,13 @@ export default function RepoMindApp() {
                     <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-gradient-to-br from-indigo-500 to-fuchsia-500 px-4 py-2.5 text-sm text-white shadow-md">
                       {turn.question}
                     </div>
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10">
-                      <User className="h-3.5 w-3.5 text-white/70" />
+                    <div className="glass-badge flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]">
+                      <User className="relative z-10 h-3.5 w-3.5 text-white/70" />
                     </div>
                   </div>
                   <div className="group/msg flex items-start gap-2.5">
-                    <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${turnMode.ring}`}>
-                      <Bot className="h-3.5 w-3.5 text-white/90" />
+                    <div className={`glass-badge flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] ${turnMode.ring}`}>
+                      <Bot className="relative z-10 h-3.5 w-3.5 text-white/90" />
                     </div>
                     <div className="max-w-[85%] rounded-2xl rounded-tl-sm border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/90">
                       {turn.streaming && turn.answer === "" ? (

@@ -207,7 +207,7 @@ export default function RepoProfilePanel({
           {profile && (
             <div className="space-y-6">
               <div>
-                <div className="mb-2 flex items-center gap-1 rounded-xl border border-white/10 bg-black/20 p-1">
+                <div className="glass-chip mb-2 flex items-center gap-1 rounded-xl p-1">
                   {diagrams.map(({ key, label, icon: Icon }) => (
                     <button
                       key={key}

@@ -240,14 +240,48 @@ code, pre {
    the ambient blobs exist and why panels using this class should stay semi-transparent
    rather than getting a solid background elsewhere. */
 .glass-panel {
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02) 60%);
-  backdrop-filter: blur(28px) saturate(160%);
-  -webkit-backdrop-filter: blur(28px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  /* Layered backgrounds instead of a pseudo-element (so this composes with .spotlight-card's
+     ::before and .glow-border's ::after without fighting over the same pseudo-slot): a bright
+     specular highlight blob in the upper-left — like light catching a real glass surface —
+     stacked over the base frosted tint. This is the actual "Liquid Glass" signature: the
+     Pinterest reference read as flat and moody because it had tint but no light source. */
+  background:
+    radial-gradient(140% 80% at 12% -10%, rgba(255, 255, 255, 0.4), transparent 55%),
+    radial-gradient(90% 60% at 100% 120%, rgba(255, 255, 255, 0.08), transparent 60%),
+    linear-gradient(165deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02) 60%);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    inset 0 0 40px rgba(255, 255, 255, 0.02),
-    0 8px 32px rgba(0, 0, 0, 0.35);
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 0 1px rgba(255, 255, 255, 0.4),
+    0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* Compact glass treatment for pill/segmented controls (mode toggles, diagram tabs) — same
+   light-catching language as .glass-panel, tuned smaller/subtler for interactive chrome
+   rather than whole cards. */
+.glass-chip {
+  background:
+    radial-gradient(140% 140% at 15% 0%, rgba(255, 255, 255, 0.16), transparent 60%),
+    rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* Glass highlight as an overlay (via ::before) rather than a background — for round
+   badges/avatars that already have their own gradient (e.g. persona-mode-colored chat
+   avatars), so the highlight layers on top instead of replacing the existing color. */
+.glass-badge {
+  position: relative;
+  overflow: hidden;
+}
+.glass-badge::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 120% at 25% 0%, rgba(255, 255, 255, 0.55), transparent 60%);
+  pointer-events: none;
 }
 
 /* Button click ripple */
