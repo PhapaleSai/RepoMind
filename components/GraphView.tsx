@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, FileCode2 } from "lucide-react";
+import { Loader2, FileCode2, Sigma } from "lucide-react";
 import type { GraphEdge, GraphNode, RepoGraph } from "@/lib/graph";
 
-// Graphify-style force-directed node graph — a real dependency graph of the repo's files
-// (nodes) and their import relationships (edges), colored by top-level folder ("community"),
-// with a toggleable legend, mirroring the reference graphify UI: dots + lines on the left,
-// a "COMMUNITIES" checklist with counts on the right. Clicking a dot drills into the
-// functions/classes detected in that file (lib/graph.ts extracts these at build time).
+// Graphify-style force-directed node graph: file nodes connected by real import edges, plus
+// symbol nodes (functions/classes, from lib/graph.ts) connected both to their own file and to
+// other files that textually reference them — an approximate cross-file call graph. Clicking a
+// dot opens a detail panel; the canvas always renders at the full width of its container (no
+// viewport-breakpoint-based side-by-side split, since this panel's container width varies a lot
+// depending on where it's embedded) so it never gets squeezed down to a sliver.
 
 interface SimNode extends GraphNode {
   x: number;
@@ -18,12 +19,10 @@ interface SimNode extends GraphNode {
   degree: number;
 }
 
-// Larger canvas than the old 720x480 — more room for labels and detail on bigger repos,
-// still scales down to fit narrower screens via the "h-auto w-full" CSS on the canvas.
-const WIDTH = 1100;
-const HEIGHT = 680;
+const WIDTH = 1000;
+const HEIGHT = 720;
 const ITERATIONS_PER_FRAME = 1;
-const SETTLE_FRAMES = 260;
+const SETTLE_FRAMES = 280;
 
 function buildSim(nodes: GraphNode[], edges: GraphEdge[]): SimNode[] {
   const degree = new Map<string, number>();
@@ -33,7 +32,7 @@ function buildSim(nodes: GraphNode[], edges: GraphEdge[]): SimNode[] {
   }
   return nodes.map((n, i) => {
     const angle = (i / nodes.length) * Math.PI * 2;
-    const r = Math.min(WIDTH, HEIGHT) * 0.38;
+    const r = Math.min(WIDTH, HEIGHT) * (n.kind === "file" ? 0.36 : 0.44);
     return {
       ...n,
       x: WIDTH / 2 + Math.cos(angle) * r,
@@ -46,10 +45,9 @@ function buildSim(nodes: GraphNode[], edges: GraphEdge[]): SimNode[] {
 }
 
 function step(nodes: SimNode[], edges: GraphEdge[], byId: Map<string, SimNode>) {
-  const REPEL = 2200;
+  const REPEL = 2400;
   const SPRING = 0.02;
-  const SPRING_LEN = 90;
-  const CENTER = 0.01;
+  const CENTER = 0.008;
   const DAMPING = 0.85;
 
   for (let i = 0; i < nodes.length; i++) {
@@ -74,10 +72,14 @@ function step(nodes: SimNode[], edges: GraphEdge[], byId: Map<string, SimNode>) 
     const a = byId.get(e.source);
     const b = byId.get(e.target);
     if (!a || !b) continue;
+    // Symbol<->file "contains" edges are pulled tighter than file<->file import edges, so
+    // symbols cluster visibly around their own file instead of floating loose.
+    const bothFiles = a.kind === "file" && b.kind === "file";
+    const springLen = bothFiles ? 110 : 40;
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-    const f = SPRING * (dist - SPRING_LEN);
+    const f = SPRING * (dist - springLen);
     const fx = (dx / dist) * f;
     const fy = (dy / dist) * f;
     a.vx += fx;
@@ -99,7 +101,8 @@ function step(nodes: SimNode[], edges: GraphEdge[], byId: Map<string, SimNode>) 
 }
 
 function nodeRadius(n: SimNode): number {
-  return 3 + Math.min(n.degree, 8) * 0.5 + Math.min(n.symbols.length, 20) * 0.25;
+  if (n.kind === "file") return 4 + Math.min(n.degree, 10) * 0.6;
+  return 2.5 + Math.min(n.degree, 6) * 0.4;
 }
 
 export default function GraphView({ repositoryId }: { repositoryId: string }) {
@@ -156,6 +159,10 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
     let frame = 0;
     const idMap = new Map(simRef.current.map((n) => [n.id, n]));
 
+    function visible(n: SimNode) {
+      return !hidden.has(n.community);
+    }
+
     function draw() {
       if (frame < SETTLE_FRAMES) {
         for (let k = 0; k < ITERATIONS_PER_FRAME; k++) step(simRef.current, graph!.edges, idMap);
@@ -163,12 +170,14 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
       frame++;
 
       ctx!.clearRect(0, 0, WIDTH, HEIGHT);
-      ctx!.strokeStyle = "rgba(255,255,255,0.08)";
-      ctx!.lineWidth = 1;
+
       for (const e of graph!.edges) {
         const a = idMap.get(e.source);
         const b = idMap.get(e.target);
-        if (!a || !b || hidden.has(a.community) || hidden.has(b.community)) continue;
+        if (!a || !b || !visible(a) || !visible(b)) continue;
+        const bothFiles = a.kind === "file" && b.kind === "file";
+        ctx!.strokeStyle = bothFiles ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)";
+        ctx!.lineWidth = bothFiles ? 1 : 0.6;
         ctx!.beginPath();
         ctx!.moveTo(a.x, a.y);
         ctx!.lineTo(b.x, b.y);
@@ -177,7 +186,7 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
 
       const colorOf = new Map(graph!.communities.map((c) => [c.name, c.color]));
       for (const n of simRef.current) {
-        if (hidden.has(n.community)) continue;
+        if (!visible(n)) continue;
         const radius = nodeRadius(n);
         const color = colorOf.get(n.community) ?? "#8ab4f8";
 
@@ -191,8 +200,15 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
 
         ctx!.beginPath();
         ctx!.arc(n.x, n.y, radius, 0, Math.PI * 2);
-        ctx!.fillStyle = color;
-        ctx!.fill();
+        if (n.kind === "symbol") {
+          ctx!.globalAlpha = 0.55;
+          ctx!.fillStyle = color;
+          ctx!.fill();
+          ctx!.globalAlpha = 1;
+        } else {
+          ctx!.fillStyle = color;
+          ctx!.fill();
+        }
       }
 
       raf = requestAnimationFrame(draw);
@@ -222,7 +238,7 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
 
   function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
     const n = nodeAtPoint(e);
-    setHoverLabel(n ? n.id : null);
+    setHoverLabel(n ? (n.kind === "file" ? n.id : `${n.label}() — ${n.file}`) : null);
   }
 
   function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
@@ -257,12 +273,19 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
   }
 
   const allSelected = hidden.size === 0;
-  const fileCount = (name: string) => graph.nodes.filter((n) => n.community === name).length;
+  const fileCount = (name: string) => graph.nodes.filter((n) => n.community === name && n.kind === "file").length;
   const colorOf = new Map(graph.communities.map((c) => [c.name, c.color]));
 
+  const selectedFileSymbols =
+    selected?.kind === "file" ? graph.nodes.filter((n) => n.kind === "symbol" && n.file === selected.id) : [];
+  const referencingFiles =
+    selected?.kind === "symbol"
+      ? [...new Set(graph.edges.filter((e) => e.target === selected.id).map((e) => e.source))]
+      : [];
+
   return (
-    <div className="flex flex-col gap-3 md:flex-row">
-      <div className="relative flex-1 overflow-hidden rounded-lg border border-white/10 bg-black/30">
+    <div className="flex flex-col gap-3">
+      <div className="relative overflow-hidden rounded-lg border border-white/10 bg-black/30">
         <canvas
           ref={canvasRef}
           width={WIDTH}
@@ -279,53 +302,90 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
         )}
       </div>
 
-      <div className="flex w-full shrink-0 flex-col gap-3 md:w-64">
-        {selected ? (
-          <div className="glass-chip rounded-xl p-3">
-            <div className="mb-2 flex items-start justify-between gap-2">
-              <div className="flex items-center gap-1.5 overflow-hidden">
-                <FileCode2 className="h-3.5 w-3.5 shrink-0 text-white/50" />
-                <p className="truncate font-mono text-[11px] text-white/80" title={selected.id}>
-                  {selected.id}
-                </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="glass-chip rounded-xl p-3">
+          {selected ? (
+            <>
+              <div className="mb-2 flex items-start justify-between gap-2">
+                <div className="flex items-center gap-1.5 overflow-hidden">
+                  {selected.kind === "file" ? (
+                    <FileCode2 className="h-3.5 w-3.5 shrink-0 text-white/50" />
+                  ) : (
+                    <Sigma className="h-3.5 w-3.5 shrink-0 text-white/50" />
+                  )}
+                  <p className="truncate font-mono text-[11px] text-white/80" title={selected.id}>
+                    {selected.kind === "file" ? selected.id : `${selected.label}()`}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelected(null)}
+                  className="shrink-0 text-[11px] text-white/40 hover:text-white/70"
+                >
+                  ✕
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="shrink-0 text-[11px] text-white/40 hover:text-white/70"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="mb-2 flex items-center gap-1.5 text-[11px] text-white/40">
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colorOf.get(selected.community) }} />
-              {selected.community} · {selected.symbols.length} symbol{selected.symbols.length === 1 ? "" : "s"} ·{" "}
-              {selected.degree} link{selected.degree === 1 ? "" : "s"}
-            </div>
-            {selected.symbols.length > 0 ? (
-              <ul className="scrollbar-thin max-h-56 space-y-1 overflow-y-auto pr-1">
-                {selected.symbols.map((s, i) => (
-                  <li key={i} className="flex items-center gap-1.5 rounded-md bg-white/[0.03] px-2 py-1 text-xs">
+
+              {selected.kind === "file" ? (
+                <>
+                  <div className="mb-2 flex items-center gap-1.5 text-[11px] text-white/40">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colorOf.get(selected.community) }} />
+                    {selected.community} · {selectedFileSymbols.length} symbol{selectedFileSymbols.length === 1 ? "" : "s"}
+                  </div>
+                  {selectedFileSymbols.length > 0 ? (
+                    <ul className="scrollbar-thin max-h-44 space-y-1 overflow-y-auto pr-1">
+                      {selectedFileSymbols.map((s) => (
+                        <li key={s.id} className="flex items-center gap-1.5 rounded-md bg-white/[0.03] px-2 py-1 text-xs">
+                          <span
+                            className={`rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide ${
+                              s.symbolKind === "class" ? "bg-fuchsia-400/15 text-fuchsia-300" : "bg-indigo-400/15 text-indigo-300"
+                            }`}
+                          >
+                            {s.symbolKind === "class" ? "class" : "fn"}
+                          </span>
+                          <span className="truncate font-mono text-white/80">{s.label}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-white/30">No functions or classes detected in this file.</p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="mb-2 text-[11px] text-white/40">
                     <span
-                      className={`rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide ${
-                        s.kind === "class" ? "bg-fuchsia-400/15 text-fuchsia-300" : "bg-indigo-400/15 text-indigo-300"
+                      className={`mr-1 rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide ${
+                        selected.symbolKind === "class" ? "bg-fuchsia-400/15 text-fuchsia-300" : "bg-indigo-400/15 text-indigo-300"
                       }`}
                     >
-                      {s.kind === "class" ? "class" : "fn"}
+                      {selected.symbolKind === "class" ? "class" : "function"}
                     </span>
-                    <span className="truncate font-mono text-white/80">{s.name}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-xs text-white/30">No functions or classes detected in this file.</p>
-            )}
-          </div>
-        ) : (
-          <div className="glass-chip rounded-xl p-3 text-xs text-white/40">
-            Click any dot to see the functions and classes detected inside that file.
-          </div>
-        )}
+                    defined in <span className="font-mono text-white/60">{selected.file}</span>
+                  </p>
+                  {referencingFiles.length > 0 ? (
+                    <>
+                      <p className="mb-1 text-[11px] text-white/40">Referenced from:</p>
+                      <ul className="scrollbar-thin max-h-32 space-y-1 overflow-y-auto pr-1">
+                        {referencingFiles.map((f) => (
+                          <li key={f} className="truncate rounded-md bg-white/[0.03] px-2 py-1 font-mono text-[11px] text-white/70">
+                            {f}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <p className="text-xs text-white/30">No other files reference this symbol by name.</p>
+                  )}
+                </>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-white/40">
+              Click a big dot for a file's functions/classes, or a small dot for where that symbol is used.
+            </p>
+          )}
+        </div>
 
         <div className="glass-chip rounded-xl p-3">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/40">Communities</p>
@@ -338,7 +398,7 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
             />
             Select all
           </label>
-          <div className="scrollbar-thin max-h-56 space-y-1.5 overflow-y-auto pr-1">
+          <div className="scrollbar-thin max-h-40 space-y-1.5 overflow-y-auto pr-1">
             {graph.communities.map((c) => (
               <label key={c.name} className="flex cursor-pointer items-center gap-2 text-xs text-white/70">
                 <input

@@ -1,20 +1,23 @@
 import { getPool } from "./db";
 
-// Graphify-style knowledge graph (user request: "like graphify graph so user can understand it
-// properly via dots"): a real, deterministic node-link graph of the repo's files and their import
-// relationships — built straight from the ingested chunks already in Postgres, no LLM call, so
-// it's free, instant, and never hallucinated (unlike the Mermaid diagrams which the model invents).
+// Graphify-style knowledge graph (user request: "like graphify graph... dots should show how
+// function etc is connected"): a real, deterministic node-link graph built straight from the
+// ingested chunks already in Postgres — no LLM call, so it's free, instant, and never
+// hallucinated (unlike the Mermaid diagrams which the model invents). Two node kinds:
+//   - "file" nodes, connected by real import/require edges between files.
+//   - "symbol" nodes (functions/classes detected in each file), connected to their own file,
+//     and to OTHER files that textually reference them — an approximate cross-file call graph,
+//     good enough to see "this function is used over there" without a full language parser.
 
-export interface GraphSymbol {
-  name: string;
-  kind: "function" | "class";
-}
+export type NodeKind = "file" | "symbol";
 
 export interface GraphNode {
   id: string;
   label: string;
   community: string;
-  symbols: GraphSymbol[];
+  kind: NodeKind;
+  file: string;
+  symbolKind?: "function" | "class";
 }
 
 export interface GraphEdge {
@@ -33,10 +36,13 @@ export interface RepoGraph {
   communities: GraphCommunity[];
 }
 
-// A repo with thousands of files would make the force layout unreadable and slow (our layout is
-// O(n^2) per frame) — cap it and keep the most-connected files, same tradeoff graphify's own
+// A repo with thousands of files+symbols would make the O(n^2) force layout unreadable and
+// slow — cap total nodes and prioritize the most-connected files, same tradeoff graphify's own
 // "top N nodes" view makes.
-const MAX_NODES = 200;
+const MAX_FILE_NODES = 90;
+const MAX_SYMBOLS_PER_FILE = 10;
+const MIN_SYMBOL_NAME_LEN = 3;
+const MAX_USES_PER_IMPORT = 4;
 
 const PALETTE = [
   "#f28b82", "#8ab4f8", "#fdd663", "#81c995", "#c58af9",
@@ -56,7 +62,7 @@ const IMPORT_PATTERNS = [
   /^\s*import\s+([.\w]+)/gm,
 ];
 
-const SYMBOL_PATTERNS: { re: RegExp; kind: GraphSymbol["kind"] }[] = [
+const SYMBOL_PATTERNS: { re: RegExp; kind: "function" | "class" }[] = [
   { re: /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s+([A-Za-z_$][\w$]*)/gm, kind: "function" },
   { re: /^\s*(?:export\s+)?(?:default\s+)?class\s+([A-Za-z_$][\w$]*)/gm, kind: "class" },
   { re: /^\s*(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(?[^=]*?\)?\s*=>/gm, kind: "function" },
@@ -64,18 +70,22 @@ const SYMBOL_PATTERNS: { re: RegExp; kind: GraphSymbol["kind"] }[] = [
   { re: /^\s*class\s+([A-Za-z_]\w*)\s*[:(]/gm, kind: "class" },
 ];
 
-const MAX_SYMBOLS_PER_FILE = 30;
+interface RawSymbol {
+  name: string;
+  kind: "function" | "class";
+}
 
-function extractSymbols(content: string): GraphSymbol[] {
+function extractSymbols(content: string): RawSymbol[] {
   const seen = new Set<string>();
-  const symbols: GraphSymbol[] = [];
+  const symbols: RawSymbol[] = [];
   for (const { re, kind } of SYMBOL_PATTERNS) {
     re.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = re.exec(content))) {
       const name = m[1];
+      if (name.length < MIN_SYMBOL_NAME_LEN) continue;
       const key = `${kind}:${name}`;
-      if (seen.has(key) || symbols.length >= MAX_SYMBOLS_PER_FILE) continue;
+      if (seen.has(key)) continue;
       seen.add(key);
       symbols.push({ name, kind });
     }
@@ -132,8 +142,10 @@ export async function buildRepoGraph(repositoryId: string): Promise<RepoGraph> {
   }
 
   const filePaths = new Set(contentByFile.keys());
-  const edgeSet = new Set<string>();
-  const edges: GraphEdge[] = [];
+
+  // Directed file->file import edges (kept directional so we know who could be *using*
+  // whom, which is what makes the symbol-level "uses" edges below meaningful).
+  const importEdges: GraphEdge[] = [];
   const degree = new Map<string, number>();
   for (const f of filePaths) degree.set(f, 0);
 
@@ -141,38 +153,71 @@ export async function buildRepoGraph(repositoryId: string): Promise<RepoGraph> {
     for (const spec of extractImportSpecs(content)) {
       const target = resolveImport(spec, filePath, filePaths);
       if (!target || target === filePath) continue;
-      const key = [filePath, target].sort().join("::");
-      if (edgeSet.has(key)) continue;
-      edgeSet.add(key);
-      edges.push({ source: filePath, target });
+      importEdges.push({ source: filePath, target });
       degree.set(filePath, (degree.get(filePath) ?? 0) + 1);
       degree.set(target, (degree.get(target) ?? 0) + 1);
     }
   }
 
   let keptFiles = [...filePaths];
-  if (keptFiles.length > MAX_NODES) {
+  if (keptFiles.length > MAX_FILE_NODES) {
     keptFiles = keptFiles
       .sort((a, b) => (degree.get(b) ?? 0) - (degree.get(a) ?? 0))
-      .slice(0, MAX_NODES);
+      .slice(0, MAX_FILE_NODES);
   }
   const kept = new Set(keptFiles);
-  const finalEdges = edges.filter((e) => kept.has(e.source) && kept.has(e.target));
+  const finalImportEdges = importEdges.filter((e) => kept.has(e.source) && kept.has(e.target));
 
   const communityNames = [...new Set(keptFiles.map(communityOf))].sort();
   const colorOf = new Map(communityNames.map((name, i) => [name, PALETTE[i % PALETTE.length]]));
 
-  const nodes: GraphNode[] = keptFiles.map((f) => ({
-    id: f,
-    label: f.split("/").pop() ?? f,
-    community: communityOf(f),
-    symbols: extractSymbols(contentByFile.get(f) ?? ""),
-  }));
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [...finalImportEdges];
+
+  const symbolsByFile = new Map<string, RawSymbol[]>();
+  for (const f of keptFiles) {
+    symbolsByFile.set(f, extractSymbols(contentByFile.get(f) ?? "").slice(0, MAX_SYMBOLS_PER_FILE));
+  }
+
+  for (const f of keptFiles) {
+    nodes.push({ id: f, label: f.split("/").pop() ?? f, community: communityOf(f), kind: "file", file: f });
+
+    for (const sym of symbolsByFile.get(f) ?? []) {
+      const symbolId = `${f}#${sym.name}`;
+      nodes.push({
+        id: symbolId,
+        label: sym.name,
+        community: communityOf(f),
+        kind: "symbol",
+        file: f,
+        symbolKind: sym.kind,
+      });
+      // "contains" edge: pins the symbol dot near its own file in the force layout.
+      edges.push({ source: f, target: symbolId });
+    }
+  }
+
+  // Approximate cross-file call graph: for every real import A -> B, check whether A's source
+  // textually references any of B's symbol names (whole-word match) — if so, draw an edge from
+  // A straight to that specific symbol dot in B, instead of just the coarse file-level edge.
+  for (const imp of finalImportEdges) {
+    const importerContent = contentByFile.get(imp.source) ?? "";
+    const targetSymbols = symbolsByFile.get(imp.target) ?? [];
+    let used = 0;
+    for (const sym of targetSymbols) {
+      if (used >= MAX_USES_PER_IMPORT) break;
+      const wordRe = new RegExp(`\\b${sym.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+      if (wordRe.test(importerContent)) {
+        edges.push({ source: imp.source, target: `${imp.target}#${sym.name}` });
+        used++;
+      }
+    }
+  }
 
   const communities: GraphCommunity[] = communityNames.map((name) => ({
     name,
     color: colorOf.get(name)!,
   }));
 
-  return { nodes, edges: finalEdges, communities };
+  return { nodes, edges, communities };
 }
