@@ -5,10 +5,16 @@ import { getPool } from "./db";
 // relationships — built straight from the ingested chunks already in Postgres, no LLM call, so
 // it's free, instant, and never hallucinated (unlike the Mermaid diagrams which the model invents).
 
+export interface GraphSymbol {
+  name: string;
+  kind: "function" | "class";
+}
+
 export interface GraphNode {
   id: string;
   label: string;
   community: string;
+  symbols: GraphSymbol[];
 }
 
 export interface GraphEdge {
@@ -49,6 +55,33 @@ const IMPORT_PATTERNS = [
   /^\s*from\s+([.\w]+)\s+import\b/gm,
   /^\s*import\s+([.\w]+)/gm,
 ];
+
+const SYMBOL_PATTERNS: { re: RegExp; kind: GraphSymbol["kind"] }[] = [
+  { re: /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s+([A-Za-z_$][\w$]*)/gm, kind: "function" },
+  { re: /^\s*(?:export\s+)?(?:default\s+)?class\s+([A-Za-z_$][\w$]*)/gm, kind: "class" },
+  { re: /^\s*(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(?[^=]*?\)?\s*=>/gm, kind: "function" },
+  { re: /^\s*def\s+([A-Za-z_]\w*)\s*\(/gm, kind: "function" },
+  { re: /^\s*class\s+([A-Za-z_]\w*)\s*[:(]/gm, kind: "class" },
+];
+
+const MAX_SYMBOLS_PER_FILE = 30;
+
+function extractSymbols(content: string): GraphSymbol[] {
+  const seen = new Set<string>();
+  const symbols: GraphSymbol[] = [];
+  for (const { re, kind } of SYMBOL_PATTERNS) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content))) {
+      const name = m[1];
+      const key = `${kind}:${name}`;
+      if (seen.has(key) || symbols.length >= MAX_SYMBOLS_PER_FILE) continue;
+      seen.add(key);
+      symbols.push({ name, kind });
+    }
+  }
+  return symbols;
+}
 
 function extractImportSpecs(content: string): string[] {
   const specs: string[] = [];
@@ -133,6 +166,7 @@ export async function buildRepoGraph(repositoryId: string): Promise<RepoGraph> {
     id: f,
     label: f.split("/").pop() ?? f,
     community: communityOf(f),
+    symbols: extractSymbols(contentByFile.get(f) ?? ""),
   }));
 
   const communities: GraphCommunity[] = communityNames.map((name) => ({

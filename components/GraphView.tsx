@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, FileCode2 } from "lucide-react";
 import type { GraphEdge, GraphNode, RepoGraph } from "@/lib/graph";
 
 // Graphify-style force-directed node graph — a real dependency graph of the repo's files
 // (nodes) and their import relationships (edges), colored by top-level folder ("community"),
 // with a toggleable legend, mirroring the reference graphify UI: dots + lines on the left,
-// a "COMMUNITIES" checklist with counts on the right.
+// a "COMMUNITIES" checklist with counts on the right. Clicking a dot drills into the
+// functions/classes detected in that file (lib/graph.ts extracts these at build time).
 
 interface SimNode extends GraphNode {
   x: number;
@@ -17,9 +18,12 @@ interface SimNode extends GraphNode {
   degree: number;
 }
 
-const WIDTH = 720;
-const HEIGHT = 480;
+// Larger canvas than the old 720x480 — more room for labels and detail on bigger repos,
+// still scales down to fit narrower screens via the "h-auto w-full" CSS on the canvas.
+const WIDTH = 1100;
+const HEIGHT = 680;
 const ITERATIONS_PER_FRAME = 1;
+const SETTLE_FRAMES = 260;
 
 function buildSim(nodes: GraphNode[], edges: GraphEdge[]): SimNode[] {
   const degree = new Map<string, number>();
@@ -29,7 +33,7 @@ function buildSim(nodes: GraphNode[], edges: GraphEdge[]): SimNode[] {
   }
   return nodes.map((n, i) => {
     const angle = (i / nodes.length) * Math.PI * 2;
-    const r = Math.min(WIDTH, HEIGHT) * 0.35;
+    const r = Math.min(WIDTH, HEIGHT) * 0.38;
     return {
       ...n,
       x: WIDTH / 2 + Math.cos(angle) * r,
@@ -42,9 +46,9 @@ function buildSim(nodes: GraphNode[], edges: GraphEdge[]): SimNode[] {
 }
 
 function step(nodes: SimNode[], edges: GraphEdge[], byId: Map<string, SimNode>) {
-  const REPEL = 1800;
+  const REPEL = 2200;
   const SPRING = 0.02;
-  const SPRING_LEN = 70;
+  const SPRING_LEN = 90;
   const CENTER = 0.01;
   const DAMPING = 0.85;
 
@@ -94,12 +98,17 @@ function step(nodes: SimNode[], edges: GraphEdge[], byId: Map<string, SimNode>) 
   }
 }
 
+function nodeRadius(n: SimNode): number {
+  return 3 + Math.min(n.degree, 8) * 0.5 + Math.min(n.symbols.length, 20) * 0.25;
+}
+
 export default function GraphView({ repositoryId }: { repositoryId: string }) {
   const [graph, setGraph] = useState<RepoGraph | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [hoverLabel, setHoverLabel] = useState<string | null>(null);
+  const [selected, setSelected] = useState<SimNode | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const simRef = useRef<SimNode[]>([]);
 
@@ -107,6 +116,7 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
     let cancelled = false;
     setLoading(true);
     setError("");
+    setSelected(null);
     (async () => {
       try {
         const res = await fetch("/api/graph", {
@@ -132,9 +142,8 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
     if (!graph) return;
     simRef.current = buildSim(graph.nodes, graph.edges);
     setHidden(new Set());
+    setSelected(null);
   }, [graph]);
-
-  const byId = useMemo(() => new Map(simRef.current.map((n) => [n.id, n])), [graph]);
 
   useEffect(() => {
     if (!graph) return;
@@ -148,7 +157,7 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
     const idMap = new Map(simRef.current.map((n) => [n.id, n]));
 
     function draw() {
-      if (frame < 220) {
+      if (frame < SETTLE_FRAMES) {
         for (let k = 0; k < ITERATIONS_PER_FRAME; k++) step(simRef.current, graph!.edges, idMap);
       }
       frame++;
@@ -169,10 +178,20 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
       const colorOf = new Map(graph!.communities.map((c) => [c.name, c.color]));
       for (const n of simRef.current) {
         if (hidden.has(n.community)) continue;
-        const radius = 2.5 + Math.min(n.degree, 8) * 0.6;
+        const radius = nodeRadius(n);
+        const color = colorOf.get(n.community) ?? "#8ab4f8";
+
+        if (selected?.id === n.id) {
+          ctx!.beginPath();
+          ctx!.arc(n.x, n.y, radius + 4, 0, Math.PI * 2);
+          ctx!.strokeStyle = "rgba(255,255,255,0.85)";
+          ctx!.lineWidth = 1.5;
+          ctx!.stroke();
+        }
+
         ctx!.beginPath();
         ctx!.arc(n.x, n.y, radius, 0, Math.PI * 2);
-        ctx!.fillStyle = colorOf.get(n.community) ?? "#8ab4f8";
+        ctx!.fillStyle = color;
         ctx!.fill();
       }
 
@@ -180,16 +199,16 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
     }
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [graph, hidden]);
+  }, [graph, hidden, selected]);
 
-  function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
+  function nodeAtPoint(e: React.MouseEvent<HTMLCanvasElement>): SimNode | null {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * WIDTH;
     const y = ((e.clientY - rect.top) / rect.height) * HEIGHT;
     let closest: SimNode | null = null;
-    let closestDist = 12;
+    let closestDist = 14;
     for (const n of simRef.current) {
       if (hidden.has(n.community)) continue;
       const d = Math.hypot(n.x - x, n.y - y);
@@ -198,7 +217,16 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
         closest = n;
       }
     }
-    setHoverLabel(closest ? closest.id : null);
+    return closest;
+  }
+
+  function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
+    const n = nodeAtPoint(e);
+    setHoverLabel(n ? n.id : null);
+  }
+
+  function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
+    setSelected(nodeAtPoint(e));
   }
 
   function toggleCommunity(name: string) {
@@ -229,7 +257,8 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
   }
 
   const allSelected = hidden.size === 0;
-  const degreeCount = (name: string) => graph.nodes.filter((n) => n.community === name).length;
+  const fileCount = (name: string) => graph.nodes.filter((n) => n.community === name).length;
+  const colorOf = new Map(graph.communities.map((c) => [c.name, c.color]));
 
   return (
     <div className="flex flex-col gap-3 md:flex-row">
@@ -240,40 +269,90 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
           height={HEIGHT}
           onMouseMove={handleMouseMove}
           onMouseLeave={() => setHoverLabel(null)}
-          className="h-auto w-full cursor-crosshair"
+          onClick={handleClick}
+          className="h-auto w-full cursor-pointer"
         />
-        {hoverLabel && (
+        {hoverLabel && !selected && (
           <div className="pointer-events-none absolute left-2 top-2 rounded-md bg-black/70 px-2 py-1 font-mono text-[11px] text-white/80">
             {hoverLabel}
           </div>
         )}
       </div>
 
-      <div className="glass-chip w-full shrink-0 rounded-xl p-3 md:w-56">
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/40">Communities</p>
-        <label className="mb-2 flex cursor-pointer items-center gap-2 text-xs text-white/70">
-          <input
-            type="checkbox"
-            checked={allSelected}
-            onChange={(e) => toggleAll(e.target.checked)}
-            className="h-3.5 w-3.5 accent-indigo-500"
-          />
-          Select all
-        </label>
-        <div className="scrollbar-thin max-h-56 space-y-1.5 overflow-y-auto pr-1">
-          {graph.communities.map((c) => (
-            <label key={c.name} className="flex cursor-pointer items-center gap-2 text-xs text-white/70">
-              <input
-                type="checkbox"
-                checked={!hidden.has(c.name)}
-                onChange={() => toggleCommunity(c.name)}
-                className="h-3.5 w-3.5 accent-indigo-500"
-              />
-              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: c.color }} />
-              <span className="truncate">{c.name}</span>
-              <span className="ml-auto text-white/30">{degreeCount(c.name)}</span>
-            </label>
-          ))}
+      <div className="flex w-full shrink-0 flex-col gap-3 md:w-64">
+        {selected ? (
+          <div className="glass-chip rounded-xl p-3">
+            <div className="mb-2 flex items-start justify-between gap-2">
+              <div className="flex items-center gap-1.5 overflow-hidden">
+                <FileCode2 className="h-3.5 w-3.5 shrink-0 text-white/50" />
+                <p className="truncate font-mono text-[11px] text-white/80" title={selected.id}>
+                  {selected.id}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className="shrink-0 text-[11px] text-white/40 hover:text-white/70"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="mb-2 flex items-center gap-1.5 text-[11px] text-white/40">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colorOf.get(selected.community) }} />
+              {selected.community} · {selected.symbols.length} symbol{selected.symbols.length === 1 ? "" : "s"} ·{" "}
+              {selected.degree} link{selected.degree === 1 ? "" : "s"}
+            </div>
+            {selected.symbols.length > 0 ? (
+              <ul className="scrollbar-thin max-h-56 space-y-1 overflow-y-auto pr-1">
+                {selected.symbols.map((s, i) => (
+                  <li key={i} className="flex items-center gap-1.5 rounded-md bg-white/[0.03] px-2 py-1 text-xs">
+                    <span
+                      className={`rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide ${
+                        s.kind === "class" ? "bg-fuchsia-400/15 text-fuchsia-300" : "bg-indigo-400/15 text-indigo-300"
+                      }`}
+                    >
+                      {s.kind === "class" ? "class" : "fn"}
+                    </span>
+                    <span className="truncate font-mono text-white/80">{s.name}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-white/30">No functions or classes detected in this file.</p>
+            )}
+          </div>
+        ) : (
+          <div className="glass-chip rounded-xl p-3 text-xs text-white/40">
+            Click any dot to see the functions and classes detected inside that file.
+          </div>
+        )}
+
+        <div className="glass-chip rounded-xl p-3">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/40">Communities</p>
+          <label className="mb-2 flex cursor-pointer items-center gap-2 text-xs text-white/70">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={(e) => toggleAll(e.target.checked)}
+              className="h-3.5 w-3.5 accent-indigo-500"
+            />
+            Select all
+          </label>
+          <div className="scrollbar-thin max-h-56 space-y-1.5 overflow-y-auto pr-1">
+            {graph.communities.map((c) => (
+              <label key={c.name} className="flex cursor-pointer items-center gap-2 text-xs text-white/70">
+                <input
+                  type="checkbox"
+                  checked={!hidden.has(c.name)}
+                  onChange={() => toggleCommunity(c.name)}
+                  className="h-3.5 w-3.5 accent-indigo-500"
+                />
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: c.color }} />
+                <span className="truncate">{c.name}</span>
+                <span className="ml-auto text-white/30">{fileCount(c.name)}</span>
+              </label>
+            ))}
+          </div>
         </div>
       </div>
     </div>
