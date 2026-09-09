@@ -22,3 +22,7 @@ npm-debug.log*
 .env*
 !.env.example
 tsconfig.tsbuildinfo
+
+# Local reference screenshots pasted into the project dir, not project assets
+Screenshot from *.png
+Screenshot from *.jpg

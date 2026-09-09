@@ -63,7 +63,7 @@ export default function RepoPicker({ onSelect }: { onSelect: (url: string) => vo
   }, [repos, query]);
 
   return (
-    <section className="stagger-in relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-5 shadow-xl backdrop-blur-sm">
+    <section className="glass-panel stagger-in relative overflow-hidden rounded-3xl p-5">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" />
       <div className="mb-3 flex items-center gap-2 text-sm text-white/50">
         <FolderGit2 className="h-4 w-4 shrink-0 text-cyan-300" />

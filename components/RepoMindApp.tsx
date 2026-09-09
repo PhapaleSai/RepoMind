@@ -338,7 +338,7 @@ export default function RepoMindApp() {
         {/* Sidebar */}
         <div className="flex flex-col gap-6">
           <section
-            className="glow-border spotlight-card stagger-in relative overflow-hidden rounded-3xl border border-white/10 bg-[#0d0d14] p-5 shadow-xl"
+            className="glass-panel glow-border spotlight-card stagger-in relative overflow-hidden rounded-3xl p-5"
             style={{ animationDelay: "0.05s" }}
             onMouseMove={handleSpotlight}
           >
@@ -418,7 +418,7 @@ export default function RepoMindApp() {
           {githubConnected && <RepoPicker onSelect={(url) => handleIngest(url)} />}
 
           <section
-            className="spotlight-card stagger-in rounded-3xl border border-white/10 bg-white/[0.03] p-5 shadow-xl backdrop-blur-sm"
+            className="glass-panel spotlight-card stagger-in rounded-3xl p-5"
             style={{ animationDelay: "0.12s" }}
             onMouseMove={handleSpotlight}
           >
@@ -482,7 +482,7 @@ export default function RepoMindApp() {
 
         {/* Main chat column */}
         <section
-          className="glow-border stagger-in relative flex min-h-[70vh] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0b0b12] shadow-2xl"
+          className="glass-panel glow-border stagger-in relative flex min-h-[70vh] flex-col overflow-hidden rounded-3xl"
           style={{ animationDelay: "0.1s" }}
         >
           <div ref={scrollRef} onScroll={handleChatScroll} className="scrollbar-thin flex flex-1 flex-col gap-6 overflow-y-auto p-6">
