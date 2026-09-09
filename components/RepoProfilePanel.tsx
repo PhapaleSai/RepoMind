@@ -139,9 +139,9 @@ export default function RepoProfilePanel({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-5 py-4 text-left"
+        className="flex w-full flex-wrap items-center justify-between gap-2 px-5 py-4 text-left"
       >
-        <span className="flex items-center gap-2 text-sm font-medium text-white/80">
+        <span className="flex flex-wrap items-center gap-2 text-sm font-medium text-white/80">
           <Sparkles className="h-4 w-4 text-indigo-300" />
           Repo Overview
           {loading && !open && (
@@ -206,12 +206,12 @@ export default function RepoProfilePanel({
                       key={key}
                       type="button"
                       onClick={() => setDiagramTab(key)}
-                      className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                      className={`flex flex-1 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-[11px] font-medium transition sm:gap-1.5 sm:px-3 sm:text-xs ${
                         diagramTab === key ? "bg-indigo-500 text-white shadow-sm" : "text-white/40 hover:text-white/70"
                       }`}
                     >
-                      <Icon className="h-3.5 w-3.5" />
-                      {label}
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{label}</span>
                     </button>
                   ))}
                 </div>

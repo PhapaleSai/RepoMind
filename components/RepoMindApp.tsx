@@ -313,8 +313,8 @@ export default function RepoMindApp() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:py-10">
-      <header className="stagger-in flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+      <header className="stagger-in flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-fuchsia-500 to-cyan-400 shadow-lg shadow-fuchsia-500/30">
             <div className="absolute inset-0 animate-pulse rounded-2xl bg-gradient-to-br from-indigo-500 via-fuchsia-500 to-cyan-400 opacity-70 blur-md" />
             <Sparkles className="relative h-5 w-5 text-white" />
@@ -460,14 +460,14 @@ export default function RepoMindApp() {
                   key={value}
                   type="button"
                   onClick={() => handleModeChange(value)}
-                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                  className={`flex flex-1 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-[11px] font-medium transition-all sm:gap-1.5 sm:px-3 sm:text-xs ${
                     explainerMode === value
                       ? `bg-gradient-to-r ${gradient} text-white shadow-sm scale-105`
                       : "text-white/40 hover:text-white/70"
                   }`}
                 >
-                  <Icon className="h-3.5 w-3.5" />
-                  {label}
+                  <Icon className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{label}</span>
                 </button>
               ))}
             </div>
@@ -610,7 +610,9 @@ export default function RepoMindApp() {
                         );
                       })}
                       {!turn.streaming && (
-                        <div className="mt-2 flex items-center gap-1 opacity-0 transition group-hover/msg:opacity-100">
+                        // Always visible (not hover-gated): opacity-0-until-hover has no
+                        // equivalent on touch devices, which would make these unreachable on mobile.
+                        <div className="mt-2 flex items-center gap-1">
                           <button
                             type="button"
                             onClick={() => copyAnswer(i, turn.answer)}

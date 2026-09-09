@@ -21,7 +21,7 @@ export interface RepoProfile {
 }
 
 const MAX_KEY_FILE_CHARS = 1_500;
-const MAX_COMPLETION_TOKENS = 2_200;
+const MAX_COMPLETION_TOKENS = 3_000;
 
 async function buildOverviewContext(repositoryId: string): Promise<string> {
   const pool = getPool();
@@ -49,11 +49,33 @@ async function buildOverviewContext(repositoryId: string): Promise<string> {
 }
 
 const MERMAID_SAFETY_RULE = `Mermaid syntax rules that must never be violated in any diagram field below (a
-single broken diagram fails to render at all): node/participant labels must be plain alphanumeric text and
-spaces ONLY — no parentheses, no colons, no literal "\\n" or real line breaks inside a label, no slashes.
-Keep every label to 1-3 words. If a label needs a line break, split it into two connected nodes instead.
-Keep every diagram compact: 8-10 lines of Mermaid source at most. This is a strict budget shared with the
-other JSON fields — a long, elaborate diagram risks the whole response being cut off mid-JSON.`;
+single broken diagram fails to render at all):
+
+- Every flowchart node and every sequenceDiagram participant MUST have a short ID with NO spaces
+  (e.g. FE, BE, DB, AiProvider) — this is what edges/arrows reference. NEVER write an edge between
+  bare multi-word text like "Backend --> AI Provider" (invalid: "AI Provider" is not a valid node ID).
+- If you want a human-readable multi-word label, attach it to the short ID:
+  - flowchart: FE[Frontend App] then use "FE --> BE" for edges (the bracket label may contain spaces).
+  - sequenceDiagram: "participant AI as AI Provider" then use "AI" in every message line.
+- Inside any label or bracket text: no parentheses, no colons, no literal "\\n", no real line breaks.
+- Keep every diagram compact: 8-10 lines of Mermaid source at most — this budget is shared with the
+  other JSON fields, so an elaborate diagram risks the whole response being cut off mid-JSON.
+
+Valid flowchart example (copy this exact pattern, just change the content):
+graph TD
+    FE[Frontend App] --> BE[Backend API]
+    BE --> DB[Database]
+    BE --> AI[AI Provider]
+
+Valid sequenceDiagram example (copy this exact pattern, just change the content):
+sequenceDiagram
+    participant U as User
+    participant FE as Frontend
+    participant BE as Backend
+    U->>FE: submit request
+    FE->>BE: call API
+    BE-->>FE: response
+    FE-->>U: show result`;
 
 const PROFILE_SYSTEM_PROMPT = `You are RepoMind's repository analyst. Given a file list and key files (README,
 package manifest) from a GitHub repository, produce a JSON object with exactly these fields.
@@ -70,7 +92,9 @@ ${MERMAID_SAFETY_RULE}
               functions/routes/files where you can tell them from the file list. Valid Mermaid syntax only.",
   "erDiagram": "a Mermaid erDiagram showing the repo's persisted data models/tables and their relationships,
               ONLY if the file list clearly shows a database schema, ORM models, or migrations. Otherwise
-              return an empty string exactly: \\"\\". Valid Mermaid syntax only when non-empty.",
+              return an empty string exactly: \\"\\". Show relationships between entities, but list AT MOST
+              2 attributes per entity (e.g. just id and one other key field) — this is a relationship
+              diagram, not a full schema dump. Valid Mermaid syntax only when non-empty.",
   "onboarding": ["3-6 short imperative steps a new developer should follow to start understanding this repo,
                  starting with the actual entry point file"],
   "complexity": {
