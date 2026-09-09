@@ -185,7 +185,13 @@ export async function getOrBuildRepoProfile(repositoryId: string, config: LlmCon
     // earlier schema used a single `mermaid` field) would otherwise crash the Mermaid
     // renderer with `chart` undefined — treat a profile missing the new required field
     // as stale and regenerate instead of returning it as-is.
-    if (cached?.architectureDiagram) return cached;
+    if (cached?.architectureDiagram) {
+      // Re-run the semicolon sanitizer on read too — a profile cached before this fix existed
+      // would otherwise keep failing to render forever without the user having to notice and
+      // hit Regenerate.
+      if (cached.erDiagram) cached.erDiagram = sanitizeErDiagram(cached.erDiagram);
+      return cached;
+    }
   }
 
   const context = await buildOverviewContext(repositoryId);
