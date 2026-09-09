@@ -1,0 +1,26 @@
+// Shown on a rotating basis while a repo is being ingested, purely to keep the wait
+// entertaining — no functional role.
+export const INGEST_FACTS: string[] = [
+  "The first computer bug was literally a bug: a moth stuck in a Harvard Mark II relay in 1947.",
+  "Regular expressions are Turing-incomplete, which is why every programmer eventually tries to parse HTML with one and regrets it.",
+  "Git's data model is just a content-addressed Merkle DAG — every commit hash already proves the integrity of everything beneath it.",
+  "The term \"debugging\" predates computers: Thomas Edison used it in an 1878 letter about mechanical faults.",
+  "A single Google search uses about the same amount of energy as running a 60-watt lightbulb for 17 seconds.",
+  "There are more possible chess games than atoms in the observable universe — and more possible Git histories than either.",
+  "The QWERTY keyboard layout was designed to slow typists down, so early mechanical typewriters wouldn't jam.",
+  "HTTP status code 418 (\"I'm a teapot\") is a real, if joking, entry in the IETF spec — an April Fools' RFC from 1998.",
+  "Cosine similarity between two vectors is just the cosine of the angle between them — which is why embeddings work at all.",
+  "The first 1GB hard drive, shipped by IBM in 1980, weighed about 550 pounds and leased for $3,200 a month.",
+  "Vector databases and libraries got popular for RAG, but the underlying math (nearest-neighbor search) dates back to the 1960s.",
+  "The word \"pixel\" is a portmanteau of \"picture\" and \"element\" — coined in the 1960s at JPL.",
+  "An HNSW index (like the one this app just built) is a layered skip-list over a similarity graph — logarithmic search over an otherwise brute-force problem.",
+  "The original name for the JavaScript language was Mocha, then LiveScript, before Netscape settled on JavaScript for marketing reasons.",
+  "A single email with an attachment can have a bigger carbon footprint than you'd expect — data centers now use roughly 1-2% of global electricity.",
+  "The C programming language has no built-in string type — a string is just a pointer with a promise that a zero byte shows up eventually.",
+  "The first computer virus, Creeper (1971), didn't damage anything — it just printed \"I'm the creeper, catch me if you can!\"",
+  "Cohere's embedding models (what's indexing this repo right now) use asymmetric encodings — a query and a document are embedded differently on purpose.",
+  "The Unix epoch (January 1, 1970) was chosen somewhat arbitrarily by early Bell Labs engineers — it just needed to be recent and round.",
+  "A single Cohere embedding call can process up to 96 pieces of text per request, but chunking finer helps citations stay precise, at the cost of more calls.",
+  "The largest number of GitHub stars ever on a single repo belongs to freeCodeCamp — over 400,000 and counting.",
+  "There is no algorithmic reason recursion needs a call stack — some languages implement it via trampolining instead, trading stack frames for loop iterations.",
+];

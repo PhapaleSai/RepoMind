@@ -1,0 +1,23 @@
+node_modules/
+.next/
+.env.local
+.env*.local
+npm-debug.log*
+
+# InsForge & AI agent skills
+.insforge
+.agent
+.agents
+.augment
+.claude
+.cline
+.github/copilot*
+.kilocode
+.qoder
+.qwen
+.roo
+.trae
+.windsurf
+.vercel
+.env*
+!.env.example
