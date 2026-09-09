@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Sparkles, ListChecks, Gauge, ShieldAlert, ChevronDown, Network, GitBranch, Database } from "lucide-react";
+import { Loader2, Sparkles, ListChecks, Gauge, ShieldAlert, ChevronDown, Network, GitBranch, Database, Waypoints } from "lucide-react";
 import { handleSpotlight } from "@/lib/uiEffects";
+import GraphView from "@/components/GraphView";
 
 interface SecurityFinding {
   filePath: string;
@@ -65,7 +66,7 @@ function MermaidDiagram({ chart }: { chart: string | undefined }) {
   return <div ref={containerRef} className="overflow-x-auto [&_svg]:mx-auto" />;
 }
 
-type DiagramTab = "architecture" | "flow" | "data";
+type DiagramTab = "architecture" | "flow" | "data" | "graph";
 
 export default function RepoProfilePanel({
   repositoryId,
@@ -133,6 +134,9 @@ export default function RepoProfilePanel({
         { key: "architecture", label: "Architecture", icon: Network, chart: profile.architectureDiagram },
         { key: "flow", label: "Flow", icon: GitBranch, chart: profile.flowDiagram },
         ...(profile.erDiagram ? [{ key: "data" as const, label: "Data model", icon: Database, chart: profile.erDiagram }] : []),
+        // Graph isn't Mermaid/LLM-generated — it's a real, free dependency graph built straight
+        // from the ingested files (see lib/graph.ts) — but it lives in the same tab strip.
+        { key: "graph" as const, label: "Graph", icon: Waypoints },
       ]
     : [];
 
@@ -223,9 +227,13 @@ export default function RepoProfilePanel({
                   ))}
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 p-4">
-                  {diagrams
-                    .filter((d) => d.key === diagramTab)
-                    .map((d) => <MermaidDiagram key={d.key} chart={d.chart} />)}
+                  {diagramTab === "graph" ? (
+                    <GraphView repositoryId={repositoryId} />
+                  ) : (
+                    diagrams
+                      .filter((d) => d.key === diagramTab)
+                      .map((d) => <MermaidDiagram key={d.key} chart={d.chart} />)
+                  )}
                 </div>
               </div>
 

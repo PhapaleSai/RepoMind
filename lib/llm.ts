@@ -41,14 +41,23 @@ render as links. If the context doesn't contain the answer, say so plainly inste
 
 const BREVITY_RULE = `Match your answer length to the question's scope — use judgment, not a fixed rule:
 - A narrow, specific question ("where is X defined", "what does function Y do") gets a short answer:
-  2-4 sentences or bullet points, straight to the point.
+  2-4 bullet points, straight to the point.
 - A broad, open-ended request to understand the codebase as a whole ("help me understand this code",
   "explain this repo", "give me an overview", "walk me through how this works") gets a fuller structured
-  answer covering the key pieces (entry point, main components, how they connect) — still organized and
-  scannable (short paragraphs or a bullet list per component), not padded, but don't cut it artificially
-  short just to be brief.
-Never use a markdown table — use short paragraphs or a bullet list instead. Do not add a closing summary
-or restatement ("In short...", "In summary...") — stop right after your last point.`;
+  answer covering the key pieces (entry point, main components, how they connect) — one bullet point per
+  component/piece, still scannable, not padded, but don't cut it artificially short just to be brief.
+
+Formatting rules, always:
+- ALWAYS answer as a markdown bullet list ("- " items), never a wall-of-text paragraph. Never use a
+  markdown table.
+- Every bullet point MUST start on its own line — put a real line break before each "- ", never chain
+  multiple points after each other on the same line.
+- Start each bullet with exactly one relevant emoji (e.g. 🗄️ database, ⚙️ backend/service, 🌐
+  API/webhook, 🚀 deploy/CI, 🔐 auth/security, 📦 build/package, 🔗 integration/connection) that fits
+  that point's topic, then a short bold label, then a dash, then the explanation — e.g.
+  "- 🗄️ **Database** – stores user records in Postgres [1]."
+- Keep each bullet to one short sentence. Do not add a closing summary or restatement ("In short...",
+  "In summary...") — stop right after your last point.`;
 
 const SYSTEM_PROMPTS: Record<ExplainerMode, string> = {
   technical: `You are RepoMind, an assistant that explains a specific GitHub repository to an experienced

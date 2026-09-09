@@ -482,7 +482,7 @@ export default function RepoMindApp() {
 
         {/* Main chat column */}
         <section
-          className="glass-panel glow-border stagger-in relative flex min-h-[70vh] flex-col overflow-hidden rounded-3xl"
+          className="glass-panel stagger-in relative flex min-h-[70vh] flex-col overflow-hidden rounded-3xl"
           style={{ animationDelay: "0.1s" }}
         >
           <div ref={scrollRef} onScroll={handleChatScroll} className="scrollbar-thin flex flex-1 flex-col gap-6 overflow-y-auto p-6">

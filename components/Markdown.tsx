@@ -142,6 +142,8 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   );
 }
 
+const LIST_ITEM_RE = /^\s*[-*]\s+(.*)$/;
+
 function renderProse(prose: string, keyPrefix: string, groupId: string, citations: CitationRef[]): ReactNode[] {
   const lines = prose.split("\n");
   const nodes: ReactNode[] = [];
@@ -159,6 +161,30 @@ function renderProse(prose: string, keyPrefix: string, groupId: string, citation
         j++;
       }
       nodes.push(renderTable(line, bodyLines, `${keyPrefix}-table-${i}`, groupId, citations));
+      i = j;
+      continue;
+    }
+
+    const listMatch = line.match(LIST_ITEM_RE);
+    if (listMatch) {
+      const items: string[] = [];
+      let j = i;
+      while (j < lines.length) {
+        const m = lines[j].match(LIST_ITEM_RE);
+        if (!m) break;
+        items.push(m[1]);
+        j++;
+      }
+      nodes.push(
+        <ul key={`${keyPrefix}-ul-${i}`} className="my-1 space-y-1.5">
+          {items.map((item, k) => (
+            <li key={k} className="flex gap-2">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-white/40" />
+              <span>{renderInline(item, `${keyPrefix}-li-${i}-${k}`, groupId, citations)}</span>
+            </li>
+          ))}
+        </ul>
+      );
       i = j;
       continue;
     }
