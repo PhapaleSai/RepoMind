@@ -150,7 +150,12 @@ export async function getOrBuildRepoProfile(repositoryId: string, config: LlmCon
 
   if (!force) {
     const { rows } = await pool.query(`SELECT profile FROM repositories WHERE id = $1`, [repositoryId]);
-    if (rows[0]?.profile) return rows[0].profile as RepoProfile;
+    const cached = rows[0]?.profile as RepoProfile | undefined;
+    // Cached profiles from before architectureDiagram/flowDiagram/erDiagram existed (an
+    // earlier schema used a single `mermaid` field) would otherwise crash the Mermaid
+    // renderer with `chart` undefined — treat a profile missing the new required field
+    // as stale and regenerate instead of returning it as-is.
+    if (cached?.architectureDiagram) return cached;
   }
 
   const context = await buildOverviewContext(repositoryId);

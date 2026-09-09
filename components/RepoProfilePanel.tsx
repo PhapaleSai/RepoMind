@@ -30,11 +30,15 @@ const CONFIDENCE_COLOR: Record<string, string> = {
   high: "text-emerald-300 bg-emerald-400/10",
 };
 
-function MermaidDiagram({ chart }: { chart: string }) {
+function MermaidDiagram({ chart }: { chart: string | undefined }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Defensive guard: a missing/empty chart (stale cached profile in an old shape, before
+    // this field existed, or a model that returned "" unexpectedly) would otherwise crash
+    // mermaid.render with "Cannot read properties of undefined (reading 'replace')".
+    if (!chart) return;
     let cancelled = false;
     (async () => {
       try {
@@ -52,6 +56,9 @@ function MermaidDiagram({ chart }: { chart: string }) {
     };
   }, [chart]);
 
+  if (!chart) {
+    return <p className="text-xs text-white/40">No diagram available — try Regenerate below.</p>;
+  }
   if (error) {
     return <p className="text-xs text-red-300/80">Diagram render failed: {error}</p>;
   }
@@ -218,7 +225,7 @@ export default function RepoProfilePanel({
                 <div className="rounded-lg border border-white/10 bg-black/20 p-4">
                   {diagrams
                     .filter((d) => d.key === diagramTab)
-                    .map((d) => <MermaidDiagram key={d.key} chart={d.chart!} />)}
+                    .map((d) => <MermaidDiagram key={d.key} chart={d.chart} />)}
                 </div>
               </div>
 
