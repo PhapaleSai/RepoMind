@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, FileCode2, Sigma } from "lucide-react";
+import { Loader2, FileCode2, Sigma, ZoomIn, ZoomOut } from "lucide-react";
 import type { GraphEdge, GraphNode, RepoGraph } from "@/lib/graph";
 
 // Graphify-style force-directed node graph: file nodes connected by real import edges, plus
@@ -112,6 +112,7 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [hoverLabel, setHoverLabel] = useState<string | null>(null);
   const [selected, setSelected] = useState<SimNode | null>(null);
+  const [zoom, setZoom] = useState(1);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const simRef = useRef<SimNode[]>([]);
 
@@ -146,6 +147,7 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
     simRef.current = buildSim(graph.nodes, graph.edges);
     setHidden(new Set());
     setSelected(null);
+    setZoom(1);
   }, [graph]);
 
   useEffect(() => {
@@ -170,6 +172,12 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
       frame++;
 
       ctx!.clearRect(0, 0, WIDTH, HEIGHT);
+      ctx!.save();
+      // Zoom centered on the canvas midpoint — dragging the slider back to 1 restores the
+      // original layout exactly since this only ever scales the drawing, never the sim state.
+      ctx!.translate(WIDTH / 2, HEIGHT / 2);
+      ctx!.scale(zoom, zoom);
+      ctx!.translate(-WIDTH / 2, -HEIGHT / 2);
 
       for (const e of graph!.edges) {
         const a = idMap.get(e.source);
@@ -211,20 +219,25 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
         }
       }
 
+      ctx!.restore();
       raf = requestAnimationFrame(draw);
     }
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [graph, hidden, selected]);
+  }, [graph, hidden, selected, zoom]);
 
   function nodeAtPoint(e: React.MouseEvent<HTMLCanvasElement>): SimNode | null {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * WIDTH;
-    const y = ((e.clientY - rect.top) / rect.height) * HEIGHT;
+    const screenX = ((e.clientX - rect.left) / rect.width) * WIDTH;
+    const screenY = ((e.clientY - rect.top) / rect.height) * HEIGHT;
+    // Invert the draw-time zoom transform (translate to center, scale, translate back) so hit
+    // testing lines up with what's actually rendered at the current zoom level.
+    const x = (screenX - WIDTH / 2) / zoom + WIDTH / 2;
+    const y = (screenY - HEIGHT / 2) / zoom + HEIGHT / 2;
     let closest: SimNode | null = null;
-    let closestDist = 14;
+    let closestDist = 14 / zoom;
     for (const n of simRef.current) {
       if (hidden.has(n.community)) continue;
       const d = Math.hypot(n.x - x, n.y - y);
@@ -285,6 +298,21 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+        <ZoomOut className="h-3.5 w-3.5 shrink-0 text-white/40" />
+        <input
+          type="range"
+          min={1}
+          max={4}
+          step={0.05}
+          value={zoom}
+          onChange={(e) => setZoom(Number(e.target.value))}
+          className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-indigo-500"
+        />
+        <ZoomIn className="h-3.5 w-3.5 shrink-0 text-white/40" />
+        <span className="w-9 shrink-0 text-right font-mono text-[11px] text-white/40">{zoom.toFixed(1)}x</span>
+      </div>
+
       <div className="relative overflow-hidden rounded-lg border border-white/10 bg-black/30">
         <canvas
           ref={canvasRef}
@@ -408,8 +436,8 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
                   className="h-3.5 w-3.5 accent-indigo-500"
                 />
                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: c.color }} />
-                <span className="truncate">{c.name}</span>
-                <span className="ml-auto text-white/30">{fileCount(c.name)}</span>
+                <span className="truncate" title={c.name}>{c.name}</span>
+                <span className="ml-auto shrink-0 text-white/30">{fileCount(c.name)}</span>
               </label>
             ))}
           </div>
