@@ -58,6 +58,8 @@ single broken diagram fails to render at all):
   - flowchart: FE[Frontend App] then use "FE --> BE" for edges (the bracket label may contain spaces).
   - sequenceDiagram: "participant AI as AI Provider" then use "AI" in every message line.
 - Inside any label or bracket text: no parentheses, no colons, no literal "\\n", no real line breaks.
+- In an erDiagram entity block, each attribute MUST be on its own line as "type name" with NO
+  semicolons and nothing else on that line — never put multiple attributes on one line.
 - Keep every diagram compact: 8-10 lines of Mermaid source at most — this budget is shared with the
   other JSON fields, so an elaborate diagram risks the whole response being cut off mid-JSON.
 
@@ -75,7 +77,20 @@ sequenceDiagram
     U->>FE: submit request
     FE->>BE: call API
     BE-->>FE: response
-    FE-->>U: show result`;
+    FE-->>U: show result
+
+Valid erDiagram example (copy this exact pattern, just change the content — one attribute per
+line, no semicolons, no more than 2 attribute lines per entity):
+erDiagram
+    USER ||--o{ ORDER : places
+    USER {
+        int id
+        string email
+    }
+    ORDER {
+        int id
+        int userId
+    }`;
 
 const PROFILE_SYSTEM_PROMPT = `You are RepoMind's repository analyst. Given a file list and key files (README,
 package manifest) from a GitHub repository, produce a JSON object with exactly these fields.
@@ -111,6 +126,19 @@ function extractJson(text: string): string {
   return (fenced ? fenced[1] : text).trim();
 }
 
+// Defense in depth: even with an explicit example in the prompt, models occasionally cram
+// multiple erDiagram attributes onto one line separated by semicolons (invalid Mermaid — each
+// attribute must be its own line). Semicolons have no other valid use inside an erDiagram entity
+// block, so splitting on them and re-joining with newlines is a safe, mechanical fix.
+function sanitizeErDiagram(diagram: string): string {
+  if (!diagram.includes(";")) return diagram;
+  return diagram
+    .split("\n")
+    .flatMap((line) => line.split(";").map((part) => part.trimEnd()))
+    .filter((line) => line.trim() !== "")
+    .join("\n");
+}
+
 async function callLlmJson(context: string, config: LlmConfig): Promise<RepoProfile> {
   const baseUrl = (config.baseUrl?.replace(/\/$/, "") || "https://api.groq.com/openai/v1");
   const model = config.model || "openai/gpt-oss-120b";
@@ -138,7 +166,9 @@ async function callLlmJson(context: string, config: LlmConfig): Promise<RepoProf
   const json = await res.json();
   const text = json.choices?.[0]?.message?.content ?? "";
   try {
-    return JSON.parse(extractJson(text));
+    const parsed = JSON.parse(extractJson(text)) as RepoProfile;
+    if (parsed.erDiagram) parsed.erDiagram = sanitizeErDiagram(parsed.erDiagram);
+    return parsed;
   } catch {
     console.error("[profile] failed to parse model output, finish_reason:", json.choices?.[0]?.finish_reason, "raw:", text.slice(-500));
     throw new Error("Model did not return valid JSON for the repo profile");
