@@ -30,10 +30,17 @@ export interface GraphCommunity {
   color: string;
 }
 
+export interface Hotspot {
+  file: string;
+  degree: number;
+  symbolCount: number;
+}
+
 export interface RepoGraph {
   nodes: GraphNode[];
   edges: GraphEdge[];
   communities: GraphCommunity[];
+  hotspots: Hotspot[];
 }
 
 // A repo with thousands of files+symbols would make the O(n^2) force layout unreadable and
@@ -219,5 +226,13 @@ export async function buildRepoGraph(repositoryId: string): Promise<RepoGraph> {
     color: colorOf.get(name)!,
   }));
 
-  return { nodes, edges, communities };
+  // Hotspots: files with the most import fan-in/out — a simple, real signal for "this file
+  // is load-bearing, be careful changing it" without needing any LLM judgment call.
+  const hotspots: Hotspot[] = keptFiles
+    .map((f) => ({ file: f, degree: degree.get(f) ?? 0, symbolCount: (symbolsByFile.get(f) ?? []).length }))
+    .filter((h) => h.degree > 0)
+    .sort((a, b) => b.degree - a.degree)
+    .slice(0, 8);
+
+  return { nodes, edges, communities, hotspots };
 }

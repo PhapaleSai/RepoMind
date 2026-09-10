@@ -32,6 +32,7 @@ import {
   Check,
   RotateCcw,
   Share2,
+  Download,
   ArrowDown,
 } from "lucide-react";
 import Markdown, { CodeBlock } from "./Markdown";
@@ -45,6 +46,8 @@ import { handleSpotlight, createRipple } from "@/lib/uiEffects";
 
 const API_KEY_STORAGE_KEY = "repomind_llm_api_key";
 const MODE_STORAGE_KEY = "repomind_explainer_mode";
+const RECENT_REPOS_STORAGE_KEY = "repomind_recent_repos";
+const MAX_RECENT_REPOS = 6;
 const FACT_ROTATE_MS = 4500;
 
 type ExplainerMode = "technical" | "beginner" | "analogy";
@@ -137,9 +140,24 @@ export default function RepoMindApp() {
   const [sharedTurn, setSharedTurn] = useState<number | null>(null);
   const [sharingTurn, setSharingTurn] = useState<number | null>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
+  const [recentRepos, setRecentRepos] = useState<string[]>([]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const questionInputRef = useRef<HTMLInputElement>(null);
   const activeMode = MODES.find((m) => m.value === explainerMode)!;
+
+  // Cmd/Ctrl+K jumps straight to the question box — a small power-user shortcut, same
+  // convention as most command palettes.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        questionInputRef.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   function toggleCitation(key: string) {
     setExpandedCitations((prev) => {
@@ -189,6 +207,26 @@ export default function RepoMindApp() {
     }
   }
 
+  function exportChat() {
+    if (turns.length === 0) return;
+    const lines = [`# RepoMind chat — ${repoUrl || "repository"}`, ""];
+    for (const t of turns) {
+      lines.push(`## ${t.question}`, "", t.answer, "");
+      if (t.citations.length > 0) {
+        lines.push("Sources:");
+        t.citations.forEach((c, i) => lines.push(`${i + 1}. ${c.filePath}#L${c.startLine}-L${c.endLine}`));
+        lines.push("");
+      }
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "repomind-chat.md";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function scrollToBottom() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }
@@ -213,10 +251,24 @@ export default function RepoMindApp() {
       if (saved) setApiKey(saved);
       const savedMode = window.localStorage.getItem(MODE_STORAGE_KEY) as ExplainerMode | null;
       if (savedMode && MODES.some((m) => m.value === savedMode)) setExplainerMode(savedMode);
+      const savedRecent = window.localStorage.getItem(RECENT_REPOS_STORAGE_KEY);
+      if (savedRecent) setRecentRepos(JSON.parse(savedRecent));
     } catch {
       // localStorage unavailable — non-fatal, preferences just won't persist
     }
   }, []);
+
+  function rememberRecentRepo(url: string) {
+    setRecentRepos((prev) => {
+      const next = [url, ...prev.filter((u) => u !== url)].slice(0, MAX_RECENT_REPOS);
+      try {
+        window.localStorage.setItem(RECENT_REPOS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }
 
   function handleModeChange(value: ExplainerMode) {
     setExplainerMode(value);
@@ -268,6 +320,7 @@ export default function RepoMindApp() {
       });
       setSecurityFindings(data.securityFindings ?? []);
       setIngestStatus("ready");
+      rememberRecentRepo(url);
     } catch (err: any) {
       setIngestError(err.message ?? "Something went wrong");
       setIngestStatus("error");
@@ -402,6 +455,22 @@ export default function RepoMindApp() {
               </button>
             </div>
 
+            {recentRepos.length > 0 && ingestStatus !== "loading" && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {recentRepos.map((url) => (
+                  <button
+                    key={url}
+                    type="button"
+                    onClick={() => handleIngest(url)}
+                    title={url}
+                    className="max-w-full truncate rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-white/40 transition hover:border-fuchsia-400/30 hover:text-white/80"
+                  >
+                    {url.replace(/^https?:\/\/(www\.)?github\.com\//, "")}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {ingestStatus !== "idle" && (
               <div className="mt-3 text-sm">
                 {ingestStatus === "loading" && (
@@ -529,6 +598,17 @@ export default function RepoMindApp() {
           className="glass-panel stagger-in relative flex min-h-[70vh] flex-col overflow-hidden rounded-3xl"
           style={{ animationDelay: "0.1s" }}
         >
+          {turns.length > 0 && (
+            <div className="flex items-center justify-end border-b border-white/10 px-4 py-2">
+              <button
+                type="button"
+                onClick={exportChat}
+                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-white/40 transition hover:text-white/70"
+              >
+                <Download className="h-3 w-3" /> Export chat
+              </button>
+            </div>
+          )}
           <div ref={scrollRef} onScroll={handleChatScroll} className="scrollbar-thin flex flex-1 flex-col gap-6 overflow-y-auto p-6">
             {turns.length === 0 && !repositoryId && (
               <div className="flex flex-1 flex-col items-center justify-center gap-8 py-6 text-center">
@@ -746,9 +826,14 @@ export default function RepoMindApp() {
 
           <div className="flex gap-2 border-t border-white/10 bg-black/10 p-4">
             <input
+              ref={questionInputRef}
               className="flex-1 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white placeholder:text-white/30 outline-none transition focus:border-fuchsia-400/50 focus:ring-2 focus:ring-fuchsia-400/20 disabled:opacity-40"
               placeholder={
-                !repositoryId ? "Ingest a repo first…" : !apiKey ? "Add your API key on the left…" : "Ask about this repo…"
+                !repositoryId
+                  ? "Ingest a repo first…"
+                  : !apiKey
+                    ? "Add your API key on the left…"
+                    : "Ask about this repo… (⌘K to focus)"
               }
               value={question}
               onChange={(e) => setQuestion(e.target.value)}

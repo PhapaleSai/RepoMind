@@ -503,6 +503,26 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
           </div>
         </div>
       </div>
+
+      {graph.hotspots.length > 0 && (
+        <div className="glass-chip rounded-xl p-3">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/40">
+            Hotspots — most-connected files
+          </p>
+          <ul className="space-y-1">
+            {graph.hotspots.map((h) => (
+              <li key={h.file} className="flex items-center gap-2 text-xs">
+                <span className="truncate font-mono text-white/70" title={h.file}>
+                  {h.file}
+                </span>
+                <span className="ml-auto shrink-0 rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-white/40">
+                  {h.degree} link{h.degree === 1 ? "" : "s"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
