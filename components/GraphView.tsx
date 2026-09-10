@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, FileCode2, Sigma, ZoomIn, ZoomOut } from "lucide-react";
+import { Loader2, FileCode2, Sigma, ZoomIn, ZoomOut, Search, Download } from "lucide-react";
 import type { GraphEdge, GraphNode, RepoGraph } from "@/lib/graph";
 
 // Graphify-style force-directed node graph: file nodes connected by real import edges, plus
@@ -113,6 +113,7 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
   const [hoverLabel, setHoverLabel] = useState<string | null>(null);
   const [selected, setSelected] = useState<SimNode | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [search, setSearch] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const simRef = useRef<SimNode[]>([]);
 
@@ -148,6 +149,7 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
     setHidden(new Set());
     setSelected(null);
     setZoom(1);
+    setSearch("");
   }, [graph]);
 
   useEffect(() => {
@@ -193,12 +195,21 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
       }
 
       const colorOf = new Map(graph!.communities.map((c) => [c.name, c.color]));
+      const query = search.trim().toLowerCase();
       for (const n of simRef.current) {
         if (!visible(n)) continue;
         const radius = nodeRadius(n);
         const color = colorOf.get(n.community) ?? "#8ab4f8";
+        const isMatch = query.length > 0 && n.label.toLowerCase().includes(query);
+        const dimmed = query.length > 0 && !isMatch;
 
-        if (selected?.id === n.id) {
+        if (isMatch) {
+          ctx!.beginPath();
+          ctx!.arc(n.x, n.y, radius + 5, 0, Math.PI * 2);
+          ctx!.strokeStyle = "rgba(253, 224, 71, 0.9)";
+          ctx!.lineWidth = 2;
+          ctx!.stroke();
+        } else if (selected?.id === n.id) {
           ctx!.beginPath();
           ctx!.arc(n.x, n.y, radius + 4, 0, Math.PI * 2);
           ctx!.strokeStyle = "rgba(255,255,255,0.85)";
@@ -208,15 +219,10 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
 
         ctx!.beginPath();
         ctx!.arc(n.x, n.y, radius, 0, Math.PI * 2);
-        if (n.kind === "symbol") {
-          ctx!.globalAlpha = 0.55;
-          ctx!.fillStyle = color;
-          ctx!.fill();
-          ctx!.globalAlpha = 1;
-        } else {
-          ctx!.fillStyle = color;
-          ctx!.fill();
-        }
+        ctx!.globalAlpha = dimmed ? 0.12 : n.kind === "symbol" ? 0.55 : 1;
+        ctx!.fillStyle = color;
+        ctx!.fill();
+        ctx!.globalAlpha = 1;
       }
 
       ctx!.restore();
@@ -224,7 +230,7 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
     }
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [graph, hidden, selected, zoom]);
+  }, [graph, hidden, selected, zoom, search]);
 
   function nodeAtPoint(e: React.MouseEvent<HTMLCanvasElement>): SimNode | null {
     const canvas = canvasRef.current;
@@ -296,8 +302,62 @@ export default function GraphView({ repositoryId }: { repositoryId: string }) {
       ? [...new Set(graph.edges.filter((e) => e.target === selected.id).map((e) => e.source))]
       : [];
 
+  const query = search.trim().toLowerCase();
+  const searchMatches = query ? simRef.current.filter((n) => n.label.toLowerCase().includes(query)).slice(0, 8) : [];
+
+  function exportPng() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const a = document.createElement("a");
+    a.href = canvas.toDataURL("image/png");
+    a.download = "repo-graph.png";
+    a.click();
+  }
+
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search a function, class, or file…"
+            className="w-full rounded-lg border border-white/10 bg-black/20 py-2 pl-8 pr-2 text-xs text-white/80 placeholder:text-white/30 focus:border-indigo-400/50 focus:outline-none"
+          />
+          {searchMatches.length > 0 && (
+            <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-white/10 bg-[#0d0d14] shadow-xl">
+              {searchMatches.map((n) => (
+                <button
+                  key={n.id}
+                  type="button"
+                  onClick={() => {
+                    setSelected(n);
+                    setSearch("");
+                  }}
+                  className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-xs text-white/70 hover:bg-white/[0.06]"
+                >
+                  {n.kind === "file" ? (
+                    <FileCode2 className="h-3 w-3 shrink-0 text-white/40" />
+                  ) : (
+                    <Sigma className="h-3 w-3 shrink-0 text-white/40" />
+                  )}
+                  <span className="truncate font-mono">{n.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={exportPng}
+          className="flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/60 transition hover:bg-white/[0.06] hover:text-white/90"
+        >
+          <Download className="h-3.5 w-3.5" /> Export PNG
+        </button>
+      </div>
+
       <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
         <ZoomOut className="h-3.5 w-3.5 shrink-0 text-white/40" />
         <input

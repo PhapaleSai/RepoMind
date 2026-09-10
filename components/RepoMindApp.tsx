@@ -31,10 +31,12 @@ import {
   Copy,
   Check,
   RotateCcw,
+  Share2,
   ArrowDown,
 } from "lucide-react";
 import Markdown, { CodeBlock } from "./Markdown";
 import RepoProfilePanel from "./RepoProfilePanel";
+import PrExplainer from "./PrExplainer";
 import GitHubConnectButton from "./GitHubConnectButton";
 import RepoPicker from "./RepoPicker";
 import CountUp from "./CountUp";
@@ -132,6 +134,8 @@ export default function RepoMindApp() {
   const [factIndex, setFactIndex] = useState(() => Math.floor(Math.random() * INGEST_FACTS.length));
   const [expandedCitations, setExpandedCitations] = useState<Set<string>>(new Set());
   const [copiedTurn, setCopiedTurn] = useState<number | null>(null);
+  const [sharedTurn, setSharedTurn] = useState<number | null>(null);
+  const [sharingTurn, setSharingTurn] = useState<number | null>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -153,6 +157,35 @@ export default function RepoMindApp() {
       window.setTimeout(() => setCopiedTurn(null), 1500);
     } catch {
       // clipboard API unavailable — non-fatal
+    }
+  }
+
+  async function shareAnswer(turnIndex: number) {
+    const turn = turns[turnIndex];
+    if (!turn || sharingTurn !== null) return;
+    setSharingTurn(turnIndex);
+    try {
+      const res = await fetch("/api/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoFullName: repoUrl,
+          question: turn.question,
+          answer: turn.answer,
+          citations: turn.citations,
+          mode: turn.mode,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to create share link");
+      const url = `${window.location.origin}/share/${data.id}`;
+      await navigator.clipboard.writeText(url).catch(() => {});
+      setSharedTurn(turnIndex);
+      window.setTimeout(() => setSharedTurn(null), 2500);
+    } catch {
+      // non-fatal — the button just silently doesn't confirm
+    } finally {
+      setSharingTurn(null);
     }
   }
 
@@ -247,13 +280,18 @@ export default function RepoMindApp() {
     setQuestion("");
     setIsStreaming(true);
 
+    // Last completed turn only — enough for a natural "what about X in that?" follow-up
+    // without growing the request unbounded as the conversation gets longer.
+    const lastCompleted = turns.filter((t) => !t.streaming).slice(-1);
+    const history = lastCompleted.map((t) => ({ question: t.question, answer: t.answer }));
+
     setTurns((prev) => [...prev, { question: currentQuestion, answer: "", citations: [], streaming: true, mode: explainerMode }]);
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repositoryId, question: currentQuestion, apiKey, mode: explainerMode }),
+        body: JSON.stringify({ repositoryId, question: currentQuestion, apiKey, mode: explainerMode, history }),
       });
 
       const reader = res.body?.getReader();
@@ -473,6 +511,12 @@ export default function RepoMindApp() {
             </div>
           </section>
 
+          {apiKey.trim() && (
+            <div className="stagger-in" style={{ animationDelay: "0.15s" }}>
+              <PrExplainer apiKey={apiKey} />
+            </div>
+          )}
+
           {repositoryId && (
             <div className="stagger-in" style={{ animationDelay: "0.18s" }}>
               <RepoProfilePanel repositoryId={repositoryId} apiKey={apiKey} securityFindings={securityFindings} />
@@ -620,6 +664,21 @@ export default function RepoMindApp() {
                           >
                             {copiedTurn === i ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
                             {copiedTurn === i ? "Copied" : "Copy"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => shareAnswer(i)}
+                            disabled={sharingTurn === i}
+                            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-white/30 transition hover:text-white/70 disabled:opacity-40"
+                          >
+                            {sharedTurn === i ? (
+                              <Check className="h-3 w-3 text-emerald-400" />
+                            ) : sharingTurn === i ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Share2 className="h-3 w-3" />
+                            )}
+                            {sharedTurn === i ? "Link copied" : "Share"}
                           </button>
                           {isLast && (
                             <button

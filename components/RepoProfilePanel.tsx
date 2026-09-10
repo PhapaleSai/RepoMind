@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, Sparkles, ListChecks, Gauge, ShieldAlert, ChevronDown, Network, GitBranch, Database, Waypoints } from "lucide-react";
 import { handleSpotlight } from "@/lib/uiEffects";
 import GraphView from "@/components/GraphView";
+import CoverageGaps from "@/components/CoverageGaps";
 
 interface SecurityFinding {
   filePath: string;
@@ -174,6 +175,8 @@ export default function RepoProfilePanel({
 
       {open && (
         <div className="space-y-5 border-t border-white/10 px-5 py-5">
+          <CoverageGaps repositoryId={repositoryId} />
+
           {securityFindings.length > 0 && (
             <div className="space-y-2">
               <p className="flex items-center gap-1.5 text-xs font-medium text-red-300">

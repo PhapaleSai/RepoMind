@@ -59,6 +59,12 @@ Formatting rules, always:
 - Keep each bullet to one short sentence. Do not add a closing summary or restatement ("In short...",
   "In summary...") — stop right after your last point.`;
 
+const PR_SYSTEM_PROMPT = `You are RepoMind, explaining a GitHub pull request's diff to a developer who wants a fast,
+accurate summary of what changed and why it matters. Use the PR's title, description, and unified
+diff patches provided below — do not guess at intent beyond what the diff and description show.
+Call out anything risky specifically: deleted logic, changed function signatures, new dependencies,
+removed error handling, or behavior changes that could break callers. ${BREVITY_RULE}`;
+
 const SYSTEM_PROMPTS: Record<ExplainerMode, string> = {
   technical: `You are RepoMind, an assistant that explains a specific GitHub repository to an experienced
 software engineer. Use precise technical vocabulary: exact route/function/class names, design patterns,
@@ -80,10 +86,29 @@ export interface LlmConfig {
   mode?: ExplainerMode;
 }
 
+export interface ChatHistoryTurn {
+  question: string;
+  answer: string;
+}
+
+// Only the most recent turn is replayed, and its answer is capped — enough for a natural
+// "what about X in that?" follow-up without blowing the same character/token budget that
+// forced MAX_CONTEXT_CHARS in the first place.
+const MAX_HISTORY_TURNS = 1;
+const MAX_HISTORY_ANSWER_CHARS = 600;
+
+function buildHistoryMessages(history: ChatHistoryTurn[]): { role: "user" | "assistant"; content: string }[] {
+  return history.slice(-MAX_HISTORY_TURNS).flatMap((turn) => [
+    { role: "user" as const, content: turn.question },
+    { role: "assistant" as const, content: truncateChunk(turn.answer, MAX_HISTORY_ANSWER_CHARS) },
+  ]);
+}
+
 async function callChatCompletions(
   baseUrl: string,
   model: string,
   systemPrompt: string,
+  history: ChatHistoryTurn[],
   userMessage: string,
   apiKey: string,
   onToken: (text: string) => void
@@ -100,6 +125,7 @@ async function callChatCompletions(
       max_tokens: MAX_COMPLETION_TOKENS,
       messages: [
         { role: "system", content: systemPrompt },
+        ...buildHistoryMessages(history),
         { role: "user", content: userMessage },
       ],
     }),
@@ -139,7 +165,8 @@ export async function streamChatAnswer(
   question: string,
   matches: CodeChunkMatch[],
   config: LlmConfig,
-  onToken: (text: string) => void
+  onToken: (text: string) => void,
+  history: ChatHistoryTurn[] = []
 ): Promise<void> {
   const baseUrl = config.baseUrl?.replace(/\/$/, "") || DEFAULT_BASE_URL;
   const model = config.model || DEFAULT_MODEL;
@@ -151,7 +178,7 @@ export async function streamChatAnswer(
   for (const chunkSet of [matches, matches.slice(0, Math.ceil(matches.length / 2))]) {
     const context = buildContext(chunkSet);
     const userMessage = `Repository context:\n\n${context}\n\nQuestion: ${question}`;
-    const res = await callChatCompletions(baseUrl, model, systemPrompt, userMessage, config.apiKey, onToken);
+    const res = await callChatCompletions(baseUrl, model, systemPrompt, history, userMessage, config.apiKey, onToken);
 
     if (res.ok && res.body) {
       return streamResponseBody(res, onToken);
@@ -160,4 +187,20 @@ export async function streamChatAnswer(
       throw new Error(`LLM request failed: ${res.status} ${await res.text()}`);
     }
   }
+}
+
+export async function streamPrExplanation(
+  prContext: string,
+  config: LlmConfig,
+  onToken: (text: string) => void
+): Promise<void> {
+  const baseUrl = config.baseUrl?.replace(/\/$/, "") || DEFAULT_BASE_URL;
+  const model = config.model || DEFAULT_MODEL;
+  const userMessage = `Pull request:\n\n${prContext}\n\nSummarize what changed and why it matters.`;
+  const res = await callChatCompletions(baseUrl, model, PR_SYSTEM_PROMPT, [], userMessage, config.apiKey, onToken);
+
+  if (!res.ok || !res.body) {
+    throw new Error(`LLM request failed: ${res.status} ${await res.text()}`);
+  }
+  return streamResponseBody(res, onToken);
 }

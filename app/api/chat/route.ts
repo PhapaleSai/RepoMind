@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const { repositoryId, question, apiKey, baseUrl, model, mode } = await req.json();
+  const { repositoryId, question, apiKey, baseUrl, model, mode, history } = await req.json();
   if (!repositoryId || !question) {
     return new Response(JSON.stringify({ error: "repositoryId and question are required" }), {
       status: 400,
@@ -53,8 +53,12 @@ export async function POST(req: NextRequest) {
           content: m.content,
         })));
 
-        await streamChatAnswer(question, matches, { apiKey, baseUrl, model, mode }, (token) =>
-          send("token", token)
+        await streamChatAnswer(
+          question,
+          matches,
+          { apiKey, baseUrl, model, mode },
+          (token) => send("token", token),
+          Array.isArray(history) ? history.slice(-1) : []
         );
         send("done", {});
       } catch (err: any) {
