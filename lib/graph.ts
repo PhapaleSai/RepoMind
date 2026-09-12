@@ -1,4 +1,5 @@
 import { getPool } from "./db";
+import { isAstSupported, extractJsSymbolsAndImports } from "./ast";
 
 // Graphify-style knowledge graph (user request: "like graphify graph... dots should show how
 // function etc is connected"): a real, deterministic node-link graph built straight from the
@@ -8,6 +9,13 @@ import { getPool } from "./db";
 //   - "symbol" nodes (functions/classes detected in each file), connected to their own file,
 //     and to OTHER files that textually reference them — an approximate cross-file call graph,
 //     good enough to see "this function is used over there" without a full language parser.
+//
+// Symbol/import extraction itself is AST-based for JS/TS/JSX/TSX (lib/ast.ts, via
+// @babel/parser) — real parsing instead of regex guessing, so arrow functions, generics,
+// decorators, and JSX no longer trip it up. Every other ingested language (Python, Go, Java,
+// ...) still uses the regex heuristics below, as does any JS/TS file that fails to parse
+// (syntax errors, exotic dialects) — AST extraction throws rather than guessing wrong, so
+// those fall back rather than silently returning nothing.
 
 export type NodeKind = "file" | "symbol";
 
@@ -110,6 +118,25 @@ function extractImportSpecs(content: string): string[] {
   return specs;
 }
 
+interface FileData {
+  symbols: RawSymbol[];
+  importSpecs: string[];
+}
+
+function extractFileData(filePath: string, content: string): FileData {
+  if (isAstSupported(filePath)) {
+    try {
+      const { symbols, importSpecs } = extractJsSymbolsAndImports(content, filePath);
+      return { symbols, importSpecs };
+    } catch {
+      // Fall through to the regex heuristics below — a parse error (syntax the file's real
+      // toolchain accepts but this parser config doesn't, e.g. Flow-only syntax, or genuinely
+      // broken code) shouldn't mean the file gets no graph representation at all.
+    }
+  }
+  return { symbols: extractSymbols(content), importSpecs: extractImportSpecs(content) };
+}
+
 // Best-effort resolution of an import specifier to one of the repo's actual file paths —
 // tries relative-path joining, extension guessing, and dotted-module-to-path conversion.
 // Returns undefined rather than guessing wrong (no edge is better than a fake one).
@@ -150,14 +177,21 @@ export async function buildRepoGraph(repositoryId: string): Promise<RepoGraph> {
 
   const filePaths = new Set(contentByFile.keys());
 
+  // One parse per file, reused for both import edges and symbol nodes below — avoids running
+  // the AST parser (or regexes) twice over the same content.
+  const dataByFile = new Map<string, FileData>();
+  for (const [filePath, content] of contentByFile) {
+    dataByFile.set(filePath, extractFileData(filePath, content));
+  }
+
   // Directed file->file import edges (kept directional so we know who could be *using*
   // whom, which is what makes the symbol-level "uses" edges below meaningful).
   const importEdges: GraphEdge[] = [];
   const degree = new Map<string, number>();
   for (const f of filePaths) degree.set(f, 0);
 
-  for (const [filePath, content] of contentByFile) {
-    for (const spec of extractImportSpecs(content)) {
+  for (const [filePath, data] of dataByFile) {
+    for (const spec of data.importSpecs) {
       const target = resolveImport(spec, filePath, filePaths);
       if (!target || target === filePath) continue;
       importEdges.push({ source: filePath, target });
@@ -183,7 +217,7 @@ export async function buildRepoGraph(repositoryId: string): Promise<RepoGraph> {
 
   const symbolsByFile = new Map<string, RawSymbol[]>();
   for (const f of keptFiles) {
-    symbolsByFile.set(f, extractSymbols(contentByFile.get(f) ?? "").slice(0, MAX_SYMBOLS_PER_FILE));
+    symbolsByFile.set(f, (dataByFile.get(f)?.symbols ?? []).slice(0, MAX_SYMBOLS_PER_FILE));
   }
 
   for (const f of keptFiles) {
