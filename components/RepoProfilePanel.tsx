@@ -242,13 +242,13 @@ export default function RepoProfilePanel({
           {profile && (
             <div className="space-y-6">
               <div>
-                <div className="glass-chip mb-2 flex items-center gap-1 rounded-xl p-1">
+                <div className="glass-chip mb-2 flex items-center gap-1 overflow-hidden rounded-xl p-1">
                   {diagrams.map(({ key, label, icon: Icon }) => (
                     <button
                       key={key}
                       type="button"
                       onClick={() => setDiagramTab(key)}
-                      className={`flex flex-1 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-[11px] font-medium transition sm:gap-1.5 sm:px-3 sm:text-xs ${
+                      className={`flex min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-[11px] font-medium transition sm:gap-1.5 sm:px-3 sm:text-xs ${
                         diagramTab === key ? "bg-indigo-500 text-white shadow-sm" : "text-white/40 hover:text-white/70"
                       }`}
                     >
