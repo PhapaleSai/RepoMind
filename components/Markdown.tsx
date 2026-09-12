@@ -17,18 +17,24 @@ export interface CitationRef {
 }
 
 function jumpToCitation(groupId: string, n: number) {
-  const el = document.getElementById(`citation-${groupId}-${n}`);
-  if (!el) return;
-  el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  el.classList.add("citation-flash");
-  window.setTimeout(() => el.classList.remove("citation-flash"), 900);
+  // A short delay, not the next animation frame — if the sources list was just revealed by
+  // onCiteClick (collapsed by default so a long list of paths doesn't push the answer out of
+  // view), the DOM needs a moment to actually contain the element being scrolled to.
+  window.setTimeout(() => {
+    const el = document.getElementById(`citation-${groupId}-${n}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    el.classList.add("citation-flash");
+    window.setTimeout(() => el.classList.remove("citation-flash"), 900);
+  }, 50);
 }
 
 function renderInline(
   text: string,
   keyPrefix: string,
   groupId: string,
-  citations: CitationRef[]
+  citations: CitationRef[],
+  onCiteClick?: (n: number) => void
 ): ReactNode[] {
   const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[\d+\])/g).filter(Boolean);
   return parts.map((part, i) => {
@@ -52,7 +58,10 @@ function renderInline(
           key={key}
           type="button"
           title={ref ? `${ref.filePath}#L${ref.startLine}-L${ref.endLine}` : undefined}
-          onClick={() => jumpToCitation(groupId, n)}
+          onClick={() => {
+            onCiteClick?.(n);
+            jumpToCitation(groupId, n);
+          }}
           className="mx-0.5 inline-flex h-4 min-w-4 -translate-y-0.5 items-center justify-center rounded bg-indigo-400/20 px-1 align-super text-[10px] font-medium text-indigo-300 transition hover:bg-indigo-400/40"
         >
           {n}
@@ -144,7 +153,13 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
 
 const LIST_ITEM_RE = /^\s*[-*]\s+(.*)$/;
 
-function renderProse(prose: string, keyPrefix: string, groupId: string, citations: CitationRef[]): ReactNode[] {
+function renderProse(
+  prose: string,
+  keyPrefix: string,
+  groupId: string,
+  citations: CitationRef[],
+  onCiteClick?: (n: number) => void
+): ReactNode[] {
   const lines = prose.split("\n");
   const nodes: ReactNode[] = [];
   let i = 0;
@@ -180,7 +195,7 @@ function renderProse(prose: string, keyPrefix: string, groupId: string, citation
           {items.map((item, k) => (
             <li key={k} className="flex gap-2">
               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-white/40" />
-              <span>{renderInline(item, `${keyPrefix}-li-${i}-${k}`, groupId, citations)}</span>
+              <span>{renderInline(item, `${keyPrefix}-li-${i}-${k}`, groupId, citations, onCiteClick)}</span>
             </li>
           ))}
         </ul>
@@ -189,7 +204,7 @@ function renderProse(prose: string, keyPrefix: string, groupId: string, citation
       continue;
     }
 
-    nodes.push(<span key={`${keyPrefix}-${i}`}>{renderInline(line, `${keyPrefix}-${i}`, groupId, citations)}</span>);
+    nodes.push(<span key={`${keyPrefix}-${i}`}>{renderInline(line, `${keyPrefix}-${i}`, groupId, citations, onCiteClick)}</span>);
     if (i < lines.length - 1) nodes.push(<br key={`${keyPrefix}-br-${i}`} />);
     i++;
   }
@@ -201,10 +216,12 @@ export default function Markdown({
   text,
   groupId = "0",
   citations = [],
+  onCiteClick,
 }: {
   text: string;
   groupId?: string;
   citations?: CitationRef[];
+  onCiteClick?: (n: number) => void;
 }) {
   const segments = text.split(/```(\w*)\n?([\s\S]*?)```/g);
   const nodes: ReactNode[] = [];
@@ -215,7 +232,7 @@ export default function Markdown({
     const code = segments[i + 2];
 
     if (prose) {
-      nodes.push(...renderProse(prose, `p-${i}`, groupId, citations));
+      nodes.push(...renderProse(prose, `p-${i}`, groupId, citations, onCiteClick));
     }
     if (code !== undefined) {
       nodes.push(<CodeBlock key={`code-${i}`} code={code.replace(/\n$/, "")} lang={lang || undefined} />);

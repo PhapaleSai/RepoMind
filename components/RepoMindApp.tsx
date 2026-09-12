@@ -140,6 +140,7 @@ export default function RepoMindApp() {
 
   const [factIndex, setFactIndex] = useState(() => Math.floor(Math.random() * INGEST_FACTS.length));
   const [expandedCitations, setExpandedCitations] = useState<Set<string>>(new Set());
+  const [visibleSources, setVisibleSources] = useState<Set<number>>(new Set());
   const [copiedTurn, setCopiedTurn] = useState<number | null>(null);
   const [sharedTurn, setSharedTurn] = useState<number | null>(null);
   const [sharingTurn, setSharingTurn] = useState<number | null>(null);
@@ -200,6 +201,15 @@ export default function RepoMindApp() {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleSources(turnIndex: number) {
+    setVisibleSources((prev) => {
+      const next = new Set(prev);
+      if (next.has(turnIndex)) next.delete(turnIndex);
+      else next.add(turnIndex);
       return next;
     });
   }
@@ -805,11 +815,26 @@ export default function RepoMindApp() {
                         <TypingDots />
                       ) : (
                         <div className={turn.streaming ? "streaming-cursor" : ""}>
-                          <Markdown text={turn.answer} groupId={String(i)} citations={turn.citations} />
+                          <Markdown
+                            text={turn.answer}
+                            groupId={String(i)}
+                            citations={turn.citations}
+                            onCiteClick={() => setVisibleSources((prev) => new Set(prev).add(i))}
+                          />
                         </div>
                       )}
                       {turn.citations.length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => toggleSources(i)}
+                          className="mt-2 flex items-center gap-1 text-[11px] text-white/30 transition hover:text-white/60"
+                        >
+                          <ChevronDown className={`h-3 w-3 transition-transform ${visibleSources.has(i) ? "rotate-180" : ""}`} />
+                          {visibleSources.has(i) ? "Hide" : "Show"} sources ({turn.citations.length})
+                        </button>
+                      )}
+                      {visibleSources.has(i) && (
+                        <div className="fade-in mt-2 flex flex-wrap gap-1.5">
                           {turn.citations.map((c, j) => {
                             const key = `${i}-${j}`;
                             const expanded = expandedCitations.has(key);
@@ -833,15 +858,16 @@ export default function RepoMindApp() {
                           })}
                         </div>
                       )}
-                      {turn.citations.map((c, j) => {
-                        const key = `${i}-${j}`;
-                        if (!expandedCitations.has(key) || !c.content) return null;
-                        return (
-                          <div key={key} className="fade-in mt-2">
-                            <CodeBlock code={c.content} lang={c.language} />
-                          </div>
-                        );
-                      })}
+                      {visibleSources.has(i) &&
+                        turn.citations.map((c, j) => {
+                          const key = `${i}-${j}`;
+                          if (!expandedCitations.has(key) || !c.content) return null;
+                          return (
+                            <div key={key} className="fade-in mt-2">
+                              <CodeBlock code={c.content} lang={c.language} />
+                            </div>
+                          );
+                        })}
                       {!turn.streaming && (
                         // Always visible (not hover-gated): opacity-0-until-hover has no
                         // equivalent on touch devices, which would make these unreachable on mobile.
