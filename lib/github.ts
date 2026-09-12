@@ -133,6 +133,33 @@ async function fetchFileContents(
   return files;
 }
 
+export interface RepoMeta {
+  description: string | null;
+  stars: number;
+  forks: number;
+  openIssues: number;
+  language: string | null;
+  license: string | null;
+  pushedAt: string;
+  defaultBranch: string;
+}
+
+// Lightweight "at a glance" stats card data — a single cheap GitHub API call, no ingestion
+// needed, so it can render the moment a repo URL is entered.
+export async function fetchRepoMeta({ owner, repo }: RepoRef, accessToken?: string): Promise<RepoMeta> {
+  const info = await ghFetch(`/repos/${owner}/${repo}`, accessToken);
+  return {
+    description: info.description,
+    stars: info.stargazers_count,
+    forks: info.forks_count,
+    openIssues: info.open_issues_count,
+    language: info.language,
+    license: info.license?.spdx_id ?? null,
+    pushedAt: info.pushed_at,
+    defaultBranch: info.default_branch,
+  };
+}
+
 // Cheap check for the incremental-ingest path: just the latest commit SHA, no tree walk.
 export async function fetchLatestCommit(
   { owner, repo }: RepoRef,

@@ -35,6 +35,7 @@ import {
   Download,
   ArrowDown,
   Search,
+  Mic,
 } from "lucide-react";
 import Markdown, { CodeBlock } from "./Markdown";
 import RepoProfilePanel from "./RepoProfilePanel";
@@ -43,6 +44,7 @@ import GitHubConnectButton from "./GitHubConnectButton";
 import RepoPicker from "./RepoPicker";
 import CountUp from "./CountUp";
 import CommandPalette, { type PaletteAction } from "./CommandPalette";
+import RepoStatsCard from "./RepoStatsCard";
 import { INGEST_FACTS } from "@/lib/facts";
 import { handleSpotlight, createRipple } from "@/lib/uiEffects";
 
@@ -144,9 +146,40 @@ export default function RepoMindApp() {
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const questionInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    setVoiceSupported(!!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition));
+  }, []);
+
+  function toggleVoiceInput() {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+    if (isListening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.onresult = (e: any) => {
+      const transcript = Array.from(e.results as any[])
+        .map((r) => r[0].transcript)
+        .join("");
+      setQuestion(transcript);
+    };
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+  }
   const activeMode = MODES.find((m) => m.value === explainerMode)!;
 
   // Cmd/Ctrl+K opens the command palette — the same convention as VS Code, Linear, Raycast,
@@ -452,6 +485,15 @@ export default function RepoMindApp() {
       disabled: turns.length === 0,
       run: exportChat,
     },
+    ...recentRepos
+      .filter((url) => url !== repoUrl)
+      .map((url) => ({
+        id: `recent-${url}`,
+        label: `Open ${url.replace(/^https?:\/\/(www\.)?github\.com\//, "")}`,
+        hint: "recent",
+        icon: Github,
+        run: () => handleIngest(url),
+      })),
   ];
 
   return (
@@ -572,6 +614,11 @@ export default function RepoMindApp() {
                       )}
                       <span className="text-white/30"> · {ingestMeta.sha}</span>
                     </span>
+                  </div>
+                )}
+                {ingestStatus === "ready" && (
+                  <div className="mt-2">
+                    <RepoStatsCard repoUrl={repoUrl} />
                   </div>
                 )}
                 {ingestStatus === "error" && (
@@ -902,6 +949,21 @@ export default function RepoMindApp() {
               onKeyDown={(e) => e.key === "Enter" && handleAsk()}
               disabled={!canAsk}
             />
+            {voiceSupported && (
+              <button
+                type="button"
+                onClick={toggleVoiceInput}
+                disabled={!canAsk}
+                title={isListening ? "Stop listening" : "Ask by voice"}
+                className={`press flex shrink-0 items-center justify-center rounded-xl border px-3 transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                  isListening
+                    ? "border-red-400/40 bg-red-400/10 text-red-300"
+                    : "border-white/10 bg-black/20 text-white/40 hover:text-white/70"
+                }`}
+              >
+                <Mic className={`h-4 w-4 ${isListening ? "animate-pulse" : ""}`} />
+              </button>
+            )}
             <button
               className="gradient-cta relative overflow-hidden flex items-center justify-center rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2.5 text-white shadow-lg shadow-blue-500/20 disabled:cursor-not-allowed disabled:opacity-40"
               onClick={(e) => { createRipple(e); handleAsk(); }}
