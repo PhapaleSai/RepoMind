@@ -86,7 +86,7 @@ export default function PrExplainer({ apiKey }: { apiKey: string }) {
               type="button"
               onClick={explain}
               disabled={!prUrl.trim() || !apiKey.trim() || streaming}
-              className="gradient-cta flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-500 to-fuchsia-500 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="gradient-cta flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
               {streaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               {streaming ? "Explaining…" : "Explain"}

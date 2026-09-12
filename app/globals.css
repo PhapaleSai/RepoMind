@@ -9,12 +9,15 @@
 body {
   background-color: var(--bg);
   color: #e5e5ea;
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Animated, vivid, slow-drifting gradient blobs — the "wow" background. Fixed behind
-   everything, generously blurred so it reads as ambient color, not a distraction. */
+/* Slow-drifting ambient glow — restrained on purpose (Apple's product pages use one or two
+   quiet color washes, not a rainbow): a single cool blue/graphite family, low opacity, long
+   blur radius, glacial motion. It should read as "the light in the room changed," not as a
+   decoration you'd consciously notice. */
 .ambient-bg {
   position: fixed;
   inset: 0;
@@ -28,45 +31,45 @@ body {
   content: "";
   position: absolute;
   border-radius: 9999px;
-  filter: blur(110px);
-  opacity: 0.45;
+  filter: blur(140px);
+  opacity: 0.22;
 }
 .ambient-bg::before {
   top: -10%;
   left: -5%;
-  width: 40rem;
-  height: 40rem;
-  background: radial-gradient(circle, #6366f1, transparent 70%);
-  animation: drift-a 22s ease-in-out infinite alternate;
+  width: 42rem;
+  height: 42rem;
+  background: radial-gradient(circle, #3b82f6, transparent 70%);
+  animation: drift-a 34s ease-in-out infinite alternate;
 }
 .ambient-bg::after {
   top: 10%;
   right: -10%;
-  width: 36rem;
-  height: 36rem;
-  background: radial-gradient(circle, #d946ef, transparent 70%);
-  animation: drift-b 26s ease-in-out infinite alternate;
+  width: 38rem;
+  height: 38rem;
+  background: radial-gradient(circle, #6366f1, transparent 70%);
+  animation: drift-b 40s ease-in-out infinite alternate;
 }
 .ambient-blob-3 {
   bottom: -15%;
   left: 30%;
-  width: 34rem;
-  height: 34rem;
-  background: radial-gradient(circle, #22d3ee, transparent 70%);
-  animation: drift-c 30s ease-in-out infinite alternate;
+  width: 36rem;
+  height: 36rem;
+  background: radial-gradient(circle, #38bdf8, transparent 70%);
+  animation: drift-c 46s ease-in-out infinite alternate;
 }
 
 @keyframes drift-a {
   from { transform: translate(0, 0) scale(1); }
-  to { transform: translate(8%, 12%) scale(1.15); }
+  to { transform: translate(6%, 8%) scale(1.1); }
 }
 @keyframes drift-b {
-  from { transform: translate(0, 0) scale(1.1); }
-  to { transform: translate(-10%, 8%) scale(0.9); }
+  from { transform: translate(0, 0) scale(1.05); }
+  to { transform: translate(-7%, 6%) scale(0.95); }
 }
 @keyframes drift-c {
-  from { transform: translate(0, 0) scale(0.95); }
-  to { transform: translate(6%, -10%) scale(1.1); }
+  from { transform: translate(0, 0) scale(0.97); }
+  to { transform: translate(4%, -7%) scale(1.05); }
 }
 
 code, pre {
@@ -140,14 +143,23 @@ code, pre {
 .gradient-cta {
   background-size: 200% 100%;
   background-position: 0% 50%;
-  transition: background-position 0.6s ease, transform 0.15s ease, box-shadow 0.3s ease;
+  transition: background-position 0.6s ease, transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
 }
 .gradient-cta:hover:not(:disabled) {
   background-position: 100% 50%;
   transform: translateY(-1px);
 }
 .gradient-cta:active:not(:disabled) {
-  transform: translateY(0);
+  transform: translateY(0) scale(0.97);
+}
+
+/* A quiet, tactile press for any button — the kind of restrained micro-feedback Apple's own
+   UI leans on instead of loud hover effects. Safe to layer onto anything clickable. */
+.press {
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.press:active:not(:disabled) {
+  transform: scale(0.96);
 }
 
 .scrollbar-thin::-webkit-scrollbar {
@@ -211,12 +223,14 @@ code, pre {
   z-index: -1;
   border-radius: inherit;
   padding: 2px;
-  background: conic-gradient(from var(--border-angle), #6366f1, #d946ef, #22d3ee, #6366f1);
+  /* A single cool hue sweeping in brightness, not a rainbow — reads as "this edge catches
+     light" rather than "this edge is a decoration." */
+  background: conic-gradient(from var(--border-angle), #3b82f6, #93c5fd, #3b82f6, #1e3a8a, #3b82f6);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  animation: spin-border 6s linear infinite;
-  filter: drop-shadow(0 0 6px rgba(217, 70, 239, 0.5));
+  animation: spin-border 10s linear infinite;
+  filter: drop-shadow(0 0 5px rgba(59, 130, 246, 0.35));
 }
 @keyframes spin-border {
   to { --border-angle: 360deg; }

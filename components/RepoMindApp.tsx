@@ -34,6 +34,7 @@ import {
   Share2,
   Download,
   ArrowDown,
+  Search,
 } from "lucide-react";
 import Markdown, { CodeBlock } from "./Markdown";
 import RepoProfilePanel from "./RepoProfilePanel";
@@ -41,6 +42,7 @@ import PrExplainer from "./PrExplainer";
 import GitHubConnectButton from "./GitHubConnectButton";
 import RepoPicker from "./RepoPicker";
 import CountUp from "./CountUp";
+import CommandPalette, { type PaletteAction } from "./CommandPalette";
 import { INGEST_FACTS } from "@/lib/facts";
 import { handleSpotlight, createRipple } from "@/lib/uiEffects";
 
@@ -141,18 +143,19 @@ export default function RepoMindApp() {
   const [sharingTurn, setSharingTurn] = useState<number | null>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const questionInputRef = useRef<HTMLInputElement>(null);
   const activeMode = MODES.find((m) => m.value === explainerMode)!;
 
-  // Cmd/Ctrl+K jumps straight to the question box — a small power-user shortcut, same
-  // convention as most command palettes.
+  // Cmd/Ctrl+K opens the command palette — the same convention as VS Code, Linear, Raycast,
+  // and macOS Spotlight itself.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        questionInputRef.current?.focus();
+        setPaletteOpen((v) => !v);
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -402,17 +405,66 @@ export default function RepoMindApp() {
 
   const canAsk = !!repositoryId && !!apiKey.trim() && !isStreaming;
 
+  const paletteActions: PaletteAction[] = [
+    {
+      id: "ask",
+      label: "Ask a question",
+      hint: "focus input",
+      icon: Send,
+      disabled: !canAsk,
+      run: () => questionInputRef.current?.focus(),
+    },
+    ...MODES.filter((m) => m.value !== explainerMode).map((m) => ({
+      id: `mode-${m.value}`,
+      label: `Switch to "${m.label}" explainer mode`,
+      icon: m.icon,
+      run: () => handleModeChange(m.value),
+    })),
+    {
+      id: "scroll-latest",
+      label: "Scroll to latest answer",
+      icon: ArrowDown,
+      disabled: turns.length === 0,
+      run: scrollToBottom,
+    },
+    {
+      id: "copy-last",
+      label: "Copy last answer",
+      icon: Copy,
+      disabled: turns.length === 0,
+      run: () => {
+        const last = turns[turns.length - 1];
+        if (last) copyAnswer(turns.length - 1, last.answer);
+      },
+    },
+    {
+      id: "share-last",
+      label: "Share last answer",
+      hint: "copies a public link",
+      icon: Share2,
+      disabled: turns.length === 0,
+      run: () => shareAnswer(turns.length - 1),
+    },
+    {
+      id: "export",
+      label: "Export chat as Markdown",
+      icon: Download,
+      disabled: turns.length === 0,
+      run: exportChat,
+    },
+  ];
+
   return (
     <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:py-10">
       <header className="stagger-in flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-fuchsia-500 to-cyan-400 shadow-lg shadow-fuchsia-500/30">
-            <div className="absolute inset-0 animate-pulse rounded-2xl bg-gradient-to-br from-indigo-500 via-fuchsia-500 to-cyan-400 opacity-70 blur-md" />
+          <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/20">
+            <div className="absolute inset-0 animate-pulse rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 opacity-50 blur-md" />
             <Sparkles className="relative h-5 w-5 text-white" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="shimmer-text bg-gradient-to-r from-white via-fuchsia-200 to-white bg-clip-text text-lg font-semibold tracking-tight text-transparent">
+              <h1 className="shimmer-text bg-gradient-to-r from-white via-blue-100 to-white bg-clip-text text-lg font-semibold tracking-tight text-transparent">
                 RepoMind
               </h1>
               <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/40">
@@ -422,7 +474,17 @@ export default function RepoMindApp() {
             <p className="text-sm text-white/50">Chat with any GitHub repository</p>
           </div>
         </div>
-        <GitHubConnectButton onStatusChange={setGithubConnected} />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            className="press hidden items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-white/40 transition hover:border-white/20 hover:text-white/70 sm:flex"
+          >
+            <Search className="h-3.5 w-3.5" />
+            <kbd className="font-mono text-[11px]">⌘K</kbd>
+          </button>
+          <GitHubConnectButton onStatusChange={setGithubConnected} />
+        </div>
       </header>
 
       <div className="grid flex-1 grid-cols-1 gap-6 lg:grid-cols-[400px_1fr]">
@@ -446,7 +508,7 @@ export default function RepoMindApp() {
                 />
               </div>
               <button
-                className="gradient-cta relative overflow-hidden flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 via-fuchsia-500 to-cyan-400 px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-fuchsia-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                className="gradient-cta relative overflow-hidden flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-blue-500/20 disabled:cursor-not-allowed disabled:opacity-40"
                 onClick={(e) => { createRipple(e); handleIngest(); }}
                 disabled={!repoUrl.trim() || ingestStatus === "loading"}
               >
@@ -611,15 +673,15 @@ export default function RepoMindApp() {
           )}
           <div ref={scrollRef} onScroll={handleChatScroll} className="scrollbar-thin flex flex-1 flex-col gap-6 overflow-y-auto p-6">
             {turns.length === 0 && !repositoryId && (
-              <div className="flex flex-1 flex-col items-center justify-center gap-8 py-6 text-center">
-                <div className="space-y-2">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500/20 via-fuchsia-500/20 to-cyan-400/20">
-                    <MessageSquareText className="h-8 w-8 text-fuchsia-300" />
+              <div className="flex flex-1 flex-col items-center justify-center gap-10 py-6 text-center">
+                <div className="space-y-3">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500/15 to-indigo-500/15">
+                    <MessageSquareText className="h-8 w-8 text-blue-300" />
                   </div>
-                  <h2 className="shimmer-text bg-gradient-to-r from-white via-fuchsia-200 to-cyan-200 bg-clip-text text-2xl font-bold tracking-tight text-transparent">
+                  <h2 className="shimmer-text bg-gradient-to-r from-white via-blue-100 to-white bg-clip-text text-3xl font-semibold tracking-tight text-transparent sm:text-4xl">
                     Understand any codebase in minutes
                   </h2>
-                  <p className="mx-auto max-w-sm text-sm text-white/40">
+                  <p className="mx-auto max-w-sm text-[15px] leading-relaxed text-white/40">
                     Paste a GitHub URL on the left to index it, then ask anything — with real
                     citations back to the source.
                   </p>
@@ -628,7 +690,7 @@ export default function RepoMindApp() {
                   {FEATURES.map(({ icon: Icon, title, desc, color }, idx) => (
                     <div
                       key={title}
-                      className="spotlight-card stagger-in flex items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-3.5 text-left transition hover:-translate-y-0.5 hover:border-white/20 hover:shadow-lg hover:shadow-fuchsia-500/10"
+                      className="spotlight-card stagger-in flex items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-3.5 text-left transition hover:-translate-y-0.5 hover:border-white/20 hover:shadow-lg hover:shadow-blue-500/10"
                       style={{ animationDelay: `${0.2 + idx * 0.08}s` }}
                       onMouseMove={handleSpotlight}
                     >
@@ -680,7 +742,7 @@ export default function RepoMindApp() {
               return (
                 <div key={i} className="fade-in flex flex-col gap-3">
                   <div className="flex items-start justify-end gap-2.5">
-                    <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-gradient-to-br from-indigo-500 to-fuchsia-500 px-4 py-2.5 text-sm text-white shadow-md">
+                    <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-gradient-to-br from-blue-600 to-indigo-600 px-4 py-2.5 text-sm text-white shadow-md">
                       {turn.question}
                     </div>
                     <div className="glass-badge flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]">
@@ -833,7 +895,7 @@ export default function RepoMindApp() {
                   ? "Ingest a repo first…"
                   : !apiKey
                     ? "Add your API key on the left…"
-                    : "Ask about this repo… (⌘K to focus)"
+                    : "Ask about this repo… (⌘K for commands)"
               }
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
@@ -841,7 +903,7 @@ export default function RepoMindApp() {
               disabled={!canAsk}
             />
             <button
-              className="gradient-cta relative overflow-hidden flex items-center justify-center rounded-xl bg-gradient-to-r from-indigo-500 via-fuchsia-500 to-cyan-400 px-4 py-2.5 text-white shadow-lg shadow-fuchsia-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+              className="gradient-cta relative overflow-hidden flex items-center justify-center rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2.5 text-white shadow-lg shadow-blue-500/20 disabled:cursor-not-allowed disabled:opacity-40"
               onClick={(e) => { createRipple(e); handleAsk(); }}
               disabled={!canAsk || !question.trim()}
             >
@@ -850,6 +912,8 @@ export default function RepoMindApp() {
           </div>
         </section>
       </div>
+
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} actions={paletteActions} />
     </main>
   );
 }
