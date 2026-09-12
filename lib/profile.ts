@@ -139,6 +139,30 @@ function sanitizeErDiagram(diagram: string): string {
     .join("\n");
 }
 
+// Defense in depth (round 2): MERMAID_SAFETY_RULE explicitly bans parentheses inside labels
+// ("UI[UI (Compose)]" breaks the flowchart grammar — Mermaid reads "(" as the start of a
+// round-edge node shape, not literal text), but models still slip one in occasionally.
+// Parentheses have no legitimate use in any diagram this prompt asks for (flowchart,
+// sequenceDiagram, erDiagram), so stripping them everywhere is a safe mechanical fix rather
+// than trying to catch every prompt-following failure ahead of time.
+function stripParens(diagram: string): string {
+  if (!/[()]/.test(diagram)) return diagram;
+  return diagram
+    .replace(/\(/g, " ")
+    .replace(/\)/g, "")
+    .replace(/[ \t]+/g, " ")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/, ""))
+    .join("\n");
+}
+
+function sanitizeDiagrams(profile: RepoProfile): RepoProfile {
+  if (profile.architectureDiagram) profile.architectureDiagram = stripParens(profile.architectureDiagram);
+  if (profile.flowDiagram) profile.flowDiagram = stripParens(profile.flowDiagram);
+  if (profile.erDiagram) profile.erDiagram = stripParens(sanitizeErDiagram(profile.erDiagram));
+  return profile;
+}
+
 async function callLlmJson(context: string, config: LlmConfig): Promise<RepoProfile> {
   const baseUrl = (config.baseUrl?.replace(/\/$/, "") || "https://api.groq.com/openai/v1");
   const model = config.model || "openai/gpt-oss-120b";
@@ -167,8 +191,7 @@ async function callLlmJson(context: string, config: LlmConfig): Promise<RepoProf
   const text = json.choices?.[0]?.message?.content ?? "";
   try {
     const parsed = JSON.parse(extractJson(text)) as RepoProfile;
-    if (parsed.erDiagram) parsed.erDiagram = sanitizeErDiagram(parsed.erDiagram);
-    return parsed;
+    return sanitizeDiagrams(parsed);
   } catch {
     console.error("[profile] failed to parse model output, finish_reason:", json.choices?.[0]?.finish_reason, "raw:", text.slice(-500));
     throw new Error("Model did not return valid JSON for the repo profile");
@@ -186,11 +209,10 @@ export async function getOrBuildRepoProfile(repositoryId: string, config: LlmCon
     // renderer with `chart` undefined — treat a profile missing the new required field
     // as stale and regenerate instead of returning it as-is.
     if (cached?.architectureDiagram) {
-      // Re-run the semicolon sanitizer on read too — a profile cached before this fix existed
-      // would otherwise keep failing to render forever without the user having to notice and
-      // hit Regenerate.
-      if (cached.erDiagram) cached.erDiagram = sanitizeErDiagram(cached.erDiagram);
-      return cached;
+      // Re-run sanitization on read too — a profile cached before these fixes existed would
+      // otherwise keep failing to render forever without the user having to notice and hit
+      // Regenerate.
+      return sanitizeDiagrams(cached);
     }
   }
 
