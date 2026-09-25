@@ -106,7 +106,7 @@ export async function ingestRepository(repoUrl: string, accessToken?: string): P
   }
 
   const existing = await pool.query(
-    `SELECT id, commit_sha FROM repositories WHERE full_name = $1`,
+    `SELECT id, commit_sha, status FROM repositories WHERE full_name = $1`,
     [`${ref.owner}/${ref.repo}`]
   );
 
@@ -119,12 +119,22 @@ export async function ingestRepository(repoUrl: string, accessToken?: string): P
     const previousSha = existing.rows[0].commit_sha;
     const { commitSha } = await fetchLatestCommit(ref, accessToken);
 
-    if (commitSha === previousSha) {
+    // Also require status === 'ready': a repo left at 'indexing'/'error' by a prior failed
+    // attempt must never be reported "unchanged" with whatever chunks happen to be left over
+    // (previously as few as zero) — that silently served a broken repo as if it were fine.
+    if (commitSha === previousSha && existing.rows[0].status === "ready") {
       await pool.query(`UPDATE repositories SET last_accessed_at = now() WHERE id = $1`, [repositoryId]);
       const totals = await getTotals(pool, repositoryId);
       const { rows: findingRows } = await pool.query(`SELECT security_findings FROM repositories WHERE id = $1`, [repositoryId]);
       const securityFindings = Object.values(findingRows[0]?.security_findings ?? {}).flat() as SecurityFinding[];
       return { repositoryId, ...totals, commitSha, mode: "unchanged", filesChanged: 0, securityFindings };
+    }
+
+    // A prior attempt didn't finish cleanly — its stored commit_sha/chunks can't be trusted as
+    // a diff baseline (they may already reflect a commit whose chunks never actually got
+    // inserted), so do a full re-ingest instead of diffing against them.
+    if (existing.rows[0].status !== "ready") {
+      return fullIngest(pool, ref, repositoryId, accessToken);
     }
 
     const diff = await fetchRepoDiff(ref, previousSha, commitSha, accessToken);
@@ -180,32 +190,43 @@ async function fullIngest(
 ): Promise<IngestResult> {
   const snapshot = await fetchRepoSnapshot(ref, accessToken);
 
-  let repositoryId: string;
-  if (existingRepositoryId) {
-    repositoryId = existingRepositoryId;
-    await pool.query(
-      `UPDATE repositories SET commit_sha = $1, status = 'indexing', is_private = $2, updated_at = now(), last_accessed_at = now() WHERE id = $3`,
-      [snapshot.commitSha, snapshot.isPrivate, repositoryId]
-    );
-    await pool.query(`DELETE FROM code_chunks WHERE repository_id = $1`, [repositoryId]);
-  } else {
-    const inserted = await pool.query(
-      `INSERT INTO repositories (full_name, default_branch, commit_sha, is_private, status)
-       VALUES ($1, $2, $3, $4, 'indexing') RETURNING id`,
-      [`${ref.owner}/${ref.repo}`, snapshot.defaultBranch, snapshot.commitSha, snapshot.isPrivate]
-    );
-    repositoryId = inserted.rows[0].id;
-  }
-
+  // Everything below — the commit_sha/status update (or insert), clearing old chunks, and
+  // inserting new ones — now runs in a single transaction. Previously the commit_sha update
+  // and chunk delete happened as standalone queries before the transaction even opened, so a
+  // failure partway through insertChunksForFiles rolled back the chunk insert but NOT the
+  // already-committed commit_sha bump or chunk delete — leaving the repo pointed at a "new"
+  // commit with zero chunks, which the unchanged-repo fast path then served as if it were a
+  // legitimately fully-ingested, up-to-date repo. Wrapping it all in one transaction means a
+  // failure now reverts the repo to exactly its last known-good state.
   const client = await pool.connect();
+  let repositoryId: string;
   try {
     await client.query("BEGIN");
+
+    if (existingRepositoryId) {
+      repositoryId = existingRepositoryId;
+      await client.query(
+        `UPDATE repositories SET commit_sha = $1, status = 'indexing', is_private = $2, updated_at = now(), last_accessed_at = now() WHERE id = $3`,
+        [snapshot.commitSha, snapshot.isPrivate, repositoryId]
+      );
+      await client.query(`DELETE FROM code_chunks WHERE repository_id = $1`, [repositoryId]);
+    } else {
+      const inserted = await client.query(
+        `INSERT INTO repositories (full_name, default_branch, commit_sha, is_private, status)
+         VALUES ($1, $2, $3, $4, 'indexing') RETURNING id`,
+        [`${ref.owner}/${ref.repo}`, snapshot.defaultBranch, snapshot.commitSha, snapshot.isPrivate]
+      );
+      repositoryId = inserted.rows[0].id;
+    }
+
     await insertChunksForFiles(client, repositoryId, snapshot.files);
     await client.query(`UPDATE repositories SET status = 'ready', updated_at = now(), last_accessed_at = now() WHERE id = $1`, [repositoryId]);
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK");
-    await pool.query(`UPDATE repositories SET status = 'error', updated_at = now() WHERE id = $1`, [repositoryId]);
+    if (existingRepositoryId) {
+      await pool.query(`UPDATE repositories SET status = 'error', updated_at = now() WHERE id = $1`, [existingRepositoryId]);
+    }
     throw err;
   } finally {
     client.release();

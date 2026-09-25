@@ -94,6 +94,15 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+// Postgres text columns reject embedded NUL bytes outright ("invalid byte sequence for
+// encoding UTF8: 0x00") even though 0x00 is technically valid UTF-8 — it's a Postgres storage
+// limitation, not an encoding one. A handful of source files in the wild carry a stray NUL
+// (bad line endings, a misdetected binary file, a generated file with embedded resources), and
+// without this the whole ingest transaction dies on that one file's chunk insert.
+function stripNulBytes(content: string): string {
+  return content.includes("\u0000") ? content.replace(/\u0000/g, "") : content;
+}
+
 async function fetchFileContents(
   owner: string,
   repo: string,
@@ -119,7 +128,7 @@ async function fetchFileContents(
       if (!res.ok) return null;
       content = await res.text();
     }
-    return { path, content } as FetchedFile;
+    return { path, content: stripNulBytes(content) } as FetchedFile;
   });
 
   const files: FetchedFile[] = [];
