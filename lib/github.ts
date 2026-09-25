@@ -55,6 +55,15 @@ function ghHeaders(accessToken?: string, accept = "application/vnd.github+json")
 
 async function ghFetch(path: string, accessToken?: string): Promise<any> {
   const res = await fetch(`${GITHUB_API}${path}`, { headers: ghHeaders(accessToken) });
+  if (res.status === 401 && accessToken) {
+    // The user's own "Connect GitHub" OAuth token can go stale or get revoked entirely
+    // independently of this app (e.g. they revoked it on GitHub's side) — but that should
+    // never block reading a PUBLIC repo. Retry once without it before giving up; a private
+    // repo the token genuinely can't access will still fail below, correctly.
+    const retry = await fetch(`${GITHUB_API}${path}`, { headers: ghHeaders(undefined) });
+    if (retry.ok) return retry.json();
+    throw new Error(`GitHub API ${path} failed: ${retry.status} ${await retry.text()}`);
+  }
   if (!res.ok) {
     throw new Error(`GitHub API ${path} failed: ${res.status} ${await res.text()}`);
   }
@@ -116,10 +125,15 @@ async function fetchFileContents(
       // Private repos (and any authenticated fetch) go through the Contents API with the
       // raw media type — raw.githubusercontent.com does not reliably serve private blobs
       // even with an Authorization header, so this is the officially supported path.
-      const res = await fetch(
+      let res = await fetch(
         `${GITHUB_API}/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${commitSha}`,
         { headers: ghHeaders(accessToken, "application/vnd.github.raw") }
       );
+      if (res.status === 401) {
+        // Same stale/revoked-user-token fallback as ghFetch — a broken personal token
+        // shouldn't silently drop files from a public repo's ingest one by one.
+        res = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/${commitSha}/${path}`);
+      }
       if (!res.ok) return null;
       content = await res.text();
     } else {
